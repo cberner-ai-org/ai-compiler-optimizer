@@ -6,3 +6,7 @@
 	path = third_party/redb
 	url = https://github.com/cberner/redb.git
 	shallow = true
+[submodule "third_party/alive2"]
+	path = third_party/alive2
+	url = https://github.com/AliveToolkit/alive2.git
+	shallow = true

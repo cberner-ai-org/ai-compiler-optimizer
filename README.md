@@ -7,15 +7,17 @@ them equivalent with a solver, and measuring them against real Rust programs.
 The initial performance target is [redb](https://github.com/cberner/redb).
 
 The current scaffold builds an editable, pinned Rust compiler, attaches a
-loadable no-op LLVM keyhole pass, and uses that compiler path to compile a
-pinned redb benchmark. The pass changes no IR yet; it establishes the insertion
-point for later solver-proven rewrites. See the [design document](docs/design.md)
-for the planned architecture and safety model.
+loadable no-op LLVM keyhole pass, checks declarative rewrite obligations with a
+pinned Alive2 solver image, and uses the compiler path to compile a pinned redb
+benchmark. The pass changes no IR yet; it establishes the insertion point for
+later solver-proven rewrites. See the [design document](docs/design.md) for the
+planned architecture and safety model.
 
 The source inputs are Git submodules pinned to:
 
 - Rust 1.97.1 at `8bab26f4f68e0e26f0bb7960be334d5b520ea452`
 - redb 4.1.0 at `6ed1f981ba4deab0b2adbdd7bccb46ec409b2191`
+- Alive2 at `1d1bc4fe3135492a8c1166838c776530de479420`
 
 The native build environment is pinned too. `config/versions.env` identifies the
 Rust Bookworm image by registry digest and fixes apt to Debian snapshot
@@ -53,10 +55,35 @@ make init
 make test
 ```
 
-`make init` fetches the two top-level submodules and only Rust's nested
+`make init` fetches the three top-level submodules and only Rust's nested
 `library/backtrace` submodule. It deliberately avoids the large LLVM checkout:
 the stage-1 compiler uses Rust's matching CI-built LLVM, and the keyhole plugin
 is compiled against the headers and flags in that same archive.
+
+## Prove optimizer candidates
+
+```console
+make prove
+```
+
+The `proof-checker` image builds the pinned
+[Alive2](https://github.com/AliveToolkit/alive2) `alive` verifier against Z3 packages from the pinned
+Debian snapshot. It checks each `optimizer/proofs/*.opt` refinement obligation with poison and undef
+inputs enabled, a 10-second SMT-query timeout, a 30-second process timeout, and a 1 GiB solver memory
+limit. A proof is accepted only when one transformation reports success and the verifier emits no
+diagnostics. Parse errors, type errors, counterexamples, warnings, timeouts, resource failures,
+unsupported semantics, and ambiguous multi-transformation files all fail closed. The image build
+also confirms that a known-inequivalent rewrite is rejected.
+
+The initial `scaffold-identity.opt` is an end-to-end solver smoke test, not a
+transforming optimization. Add one candidate per `.opt` file. A future pass
+rewrite must be generated from, or structurally checked against, the same
+candidate that Alive2 proves; this prototype does not claim that an independent
+C++ implementation is equivalent merely because a similar formula was proved.
+
+Alive2 was selected based on its [PLDI 2021 bounded translation-validation
+paper](https://doi.org/10.1145/3453483.3454030) and its use as a formal
+correctness gate in [LLM-Vectorizer](https://arxiv.org/abs/2406.04693).
 
 The redb worktree must remain clean so the benchmark source exactly matches its
 declared revision. The Rust worktree intentionally remains editable for compiler
@@ -122,11 +149,14 @@ caches.
 
 - `third_party/rust`: editable Rust compiler submodule
 - `third_party/redb`: pinned benchmark submodule
+- `third_party/alive2`: pinned LLVM refinement checker submodule
 - `optimizer`: LLVM 22 new-pass-manager plugin and its focused build helper
+- `optimizer/proofs`: declarative Alive2 candidate and scaffold obligations
 - `config/rust-bootstrap.toml`: stage-1 compiler build configuration
 - `config/redb-Cargo.lock`: pinned benchmark dependency graph
 - `containers/Containerfile`: compiler, toolchain, and benchmark image stages
 - `scripts/rustc-with-keyhole.sh`: rustc wrapper that loads and schedules the pass
+- `scripts/verify-alive2-proofs.sh`: fail-closed proof-result adapter
 - `scripts/check.sh`: revision and scaffolding consistency checks
 - `scripts/build-image.sh`: Podman image build entry point
 - `docs/design.md`: architecture, safety model, and project milestones

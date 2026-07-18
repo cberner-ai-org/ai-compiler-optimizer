@@ -1,0 +1,4 @@
+Name: scaffold identity
+%result = xor i8 %left, %right
+  =>
+%result = xor i8 %left, %right

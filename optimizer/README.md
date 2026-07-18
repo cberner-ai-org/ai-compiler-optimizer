@@ -14,3 +14,9 @@ Production benchmark builds leave tracing unset.
 
 Do not add a transforming rewrite here until its proof obligation and focused positive and negative
 tests are available. Returning `PreservedAnalyses::all()` is valid only while the pass changes no IR.
+
+`proofs/` contains one declarative Alive2 refinement obligation per candidate. Run `make prove` to
+build the pinned solver and check every obligation with fail-closed timeout, resource, diagnostic,
+and result handling. `scaffold-identity.opt` only exercises that gate; it does not authorize a pass
+rewrite. A transforming implementation must be generated from the proved candidate or have a
+structural test demonstrating that the C++ matcher and replacement are the same obligation.
