@@ -19,9 +19,11 @@ The source inputs are Git submodules pinned to:
 
 The native build environment is pinned too. `config/versions.env` identifies the
 Rust Bookworm image by registry digest and fixes apt to Debian snapshot
-`20260713T000000Z`; image labels retain both identities. Updating either pin is
-an explicit benchmark-input change and requires rebuilding the baseline and
-experimental artifacts together.
+`20260713T000000Z`. An enforced ID derived from both pins scopes mutable build
+caches, participates in the compiler identity, and is retained with the pins in
+image labels. Updating either pin therefore selects fresh compiler and benchmark
+target caches and requires rebuilding baseline and experimental artifacts
+together.
 
 Because redb is a library and does not commit a workspace lockfile, this
 repository tracks `config/redb-Cargo.lock` for the benchmark's transitive
@@ -109,10 +111,12 @@ the benchmark environment:
 ./scripts/run-redb-benchmark.sh --cpuset-cpus=2-5
 ```
 
-The compiler, Cargo registry, and Cargo target directories use named Podman
-build caches. If a bootstrap configuration change requires a clean compiler
-build, change the versioned rustc cache ID in `containers/Containerfile` after
-deciding whether the old cache should be retained.
+The compiler and Cargo target directories use environment-scoped Podman build
+caches. The Cargo registry cache is shared across environments because locked
+crate downloads are content-addressed and checksum-verified. Bootstrap and
+source changes keep using the current environment's incremental compiler cache;
+changing either native environment pin automatically selects fresh mutable
+caches.
 
 ## Layout
 

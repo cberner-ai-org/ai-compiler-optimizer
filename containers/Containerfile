@@ -2,10 +2,12 @@ ARG RUST_IMAGE=docker.io/library/rust:1.97.1-bookworm@sha256:77fac8b98f9f46062bb
 ARG RUST_VERSION=1.97.1
 ARG RUST_COMMIT=8bab26f4f68e0e26f0bb7960be334d5b520ea452
 ARG DEBIAN_SNAPSHOT=20260713T000000Z
+ARG BUILD_ENVIRONMENT_ID=857daf7a274f92fd8270b010e8856b4d1ea32c2e0fd3e1d9c012a9f3d623dab1
 
 FROM ${RUST_IMAGE} AS rustc-builder
 
 ARG DEBIAN_SNAPSHOT
+ARG BUILD_ENVIRONMENT_ID
 
 RUN sed --in-place \
         -e "s|^URIs: http://deb.debian.org/debian$|URIs: http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|" \
@@ -33,13 +35,13 @@ COPY config/rust-git-commit-info ./git-commit-info
 COPY config/rust-bootstrap.toml /etc/rust-bootstrap.toml
 COPY optimizer/ /usr/src/optimizer/
 
-# The cache mount makes the next compiler edit incremental. The plugin has a
-# separate identity so pass-only edits do not rebuild rustc. The copied sysroot
-# is kept outside the mount so it is available to the following image stage.
-RUN --mount=type=cache,id=ai-compiler-optimizer-rust-1.97.1,target=/usr/src/rust/build \
+# Mutable build outputs are scoped to the pinned native environment. The Cargo
+# registry remains shared because locked crate downloads are checksum-verified.
+RUN --mount=type=cache,id=ai-compiler-optimizer-rust-${BUILD_ENVIRONMENT_ID},target=/usr/src/rust/build \
     --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local/cargo/registry \
     set -eux; \
     rustc_source_id="$({ \
+        printf 'build-environment:%s\n' "${BUILD_ENVIRONMENT_ID}"; \
         find . -path ./build -prune -o -type f -print0 \
             | LC_ALL=C sort -z \
             | xargs -0 -r sha256sum; \
@@ -72,11 +74,13 @@ ARG RUST_IMAGE
 ARG RUST_VERSION
 ARG RUST_COMMIT
 ARG DEBIAN_SNAPSHOT
+ARG BUILD_ENVIRONMENT_ID
 
 LABEL org.opencontainers.image.title="AI compiler optimizer custom Rust toolchain" \
       org.opencontainers.image.description="Stage-1 Rust 1.97.1 compiler with the ACO no-op keyhole pass" \
       org.opencontainers.image.base.name="${RUST_IMAGE}" \
-      org.cberner-ai.ai-compiler-optimizer.debian-snapshot="${DEBIAN_SNAPSHOT}"
+      org.cberner-ai.ai-compiler-optimizer.debian-snapshot="${DEBIAN_SNAPSHOT}" \
+      org.cberner-ai.ai-compiler-optimizer.build-environment-id="${BUILD_ENVIRONMENT_ID}"
 
 COPY --from=rustc-builder /opt/rust-custom/ /opt/rust-custom/
 COPY scripts/with-custom-toolchain.sh /usr/local/bin/with-custom-toolchain
@@ -116,6 +120,7 @@ FROM toolchain AS redb-builder
 
 ARG RUST_VERSION
 ARG DEBIAN_SNAPSHOT
+ARG BUILD_ENVIRONMENT_ID
 
 RUN sed --in-place \
         -e "s|^URIs: http://deb.debian.org/debian$|URIs: http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|" \
@@ -146,7 +151,7 @@ COPY scripts/build-redb-benchmark.sh /usr/local/bin/build-redb-benchmark
 # image and is only the build orchestrator. The wrapper binds Cargo's artifact
 # fingerprint to the copied compiler before each invocation.
 RUN --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=ai-compiler-optimizer-redb-target,target=/usr/src/redb/target \
+    --mount=type=cache,id=ai-compiler-optimizer-redb-target-${BUILD_ENVIRONMENT_ID},target=/usr/src/redb/target \
     set -eux; \
     test "$("${RUSTC}" --print sysroot)" = "/opt/rust-custom"; \
     cargo --version | grep --fixed-strings "cargo ${RUST_VERSION}"; \
@@ -157,11 +162,13 @@ FROM toolchain AS redb-benchmark
 
 ARG RUST_IMAGE
 ARG DEBIAN_SNAPSHOT
+ARG BUILD_ENVIRONMENT_ID
 
 LABEL org.opencontainers.image.title="redb benchmark with custom Rust compiler" \
       org.opencontainers.image.description="redb 4.1.0 benchmark built by Rust 1.97.1 with the ACO no-op keyhole pass" \
       org.opencontainers.image.base.name="${RUST_IMAGE}" \
-      org.cberner-ai.ai-compiler-optimizer.debian-snapshot="${DEBIAN_SNAPSHOT}"
+      org.cberner-ai.ai-compiler-optimizer.debian-snapshot="${DEBIAN_SNAPSHOT}" \
+      org.cberner-ai.ai-compiler-optimizer.build-environment-id="${BUILD_ENVIRONMENT_ID}"
 
 COPY --from=redb-builder /usr/local/bin/redb-benchmark /usr/local/bin/redb-benchmark
 

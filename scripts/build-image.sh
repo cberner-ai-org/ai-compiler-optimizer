@@ -33,5 +33,6 @@ exec podman build \
     --build-arg "RUST_VERSION=${RUST_VERSION}" \
     --build-arg "RUST_COMMIT=${RUST_COMMIT}" \
     --build-arg "DEBIAN_SNAPSHOT=${DEBIAN_SNAPSHOT}" \
+    --build-arg "BUILD_ENVIRONMENT_ID=${BUILD_ENVIRONMENT_ID}" \
     "$@" \
     "${repo_root}"

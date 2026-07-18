@@ -79,6 +79,19 @@ rg --quiet --fixed-strings "ARG DEBIAN_SNAPSHOT=${DEBIAN_SNAPSHOT}" \
     || fail "Containerfile Debian snapshot does not match config/versions.env"
 [[ "${DEBIAN_SNAPSHOT}" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] \
     || fail "DEBIAN_SNAPSHOT must use YYYYMMDDTHHMMSSZ format"
+expected_build_environment_id="$(
+    printf \
+        'rust-image:%s\ndebian-snapshot:%s\n' \
+        "${RUST_IMAGE}" \
+        "${DEBIAN_SNAPSHOT}" \
+        | sha256sum \
+        | awk '{print $1}'
+)"
+[[ "${BUILD_ENVIRONMENT_ID}" == "${expected_build_environment_id}" ]] \
+    || fail "BUILD_ENVIRONMENT_ID does not match the pinned build environment"
+rg --quiet --fixed-strings "ARG BUILD_ENVIRONMENT_ID=${BUILD_ENVIRONMENT_ID}" \
+    "${repo_root}/containers/Containerfile" \
+    || fail "Containerfile build environment ID does not match config/versions.env"
 snapshot_reference_count="$(
     rg --count --fixed-strings \
         'apt-get -o Acquire::Check-Valid-Until=false update' \
@@ -90,6 +103,22 @@ rg --quiet --fixed-strings -- \
     '--build-arg "DEBIAN_SNAPSHOT=${DEBIAN_SNAPSHOT}"' \
     "${repo_root}/scripts/build-image.sh" \
     || fail "image builds do not pass the configured Debian snapshot"
+rg --quiet --fixed-strings -- \
+    '--build-arg "BUILD_ENVIRONMENT_ID=${BUILD_ENVIRONMENT_ID}"' \
+    "${repo_root}/scripts/build-image.sh" \
+    || fail "image builds do not pass the configured build environment ID"
+rg --quiet --fixed-strings \
+    'id=ai-compiler-optimizer-rust-${BUILD_ENVIRONMENT_ID}' \
+    "${repo_root}/containers/Containerfile" \
+    || fail "rustc build cache is not scoped to the pinned environment"
+rg --quiet --fixed-strings \
+    'id=ai-compiler-optimizer-redb-target-${BUILD_ENVIRONMENT_ID}' \
+    "${repo_root}/containers/Containerfile" \
+    || fail "redb target cache is not scoped to the pinned environment"
+rg --quiet --fixed-strings \
+    'build-environment:%s\n' \
+    "${repo_root}/containers/Containerfile" \
+    || fail "rustc build identity does not include the pinned environment"
 rg --quiet --fixed-strings "with-custom-toolchain cargo test" \
     "${repo_root}/containers/Containerfile" \
     || fail "redb tests do not use the compiler-aware Cargo wrapper"
