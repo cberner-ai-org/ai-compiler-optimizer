@@ -1,5 +1,15 @@
-bench_redb:
-    ./scripts/bench-redb.sh
+init:
+    make init
 
-clear_redb_cache:
-    podman volume rm --force ai-compiler-optimizer-redb-cache
+test:
+    make test
+
+toolchain_image:
+    make toolchain-image
+
+benchmark_image:
+    make benchmark-image
+
+bench_redb:
+    make benchmark-image
+    make benchmark

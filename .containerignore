@@ -1,4 +1,11 @@
-*
-!Containerfile.redb-bench
-!scripts/
-!scripts/run-redb-benchmark.sh
+.git
+.github
+third_party/rust/.git
+third_party/rust/.github
+third_party/rust/library/backtrace/.git
+third_party/redb/.git
+target
+build
+third_party/rust/build
+third_party/redb/target
+third_party/redb/.benchmark
