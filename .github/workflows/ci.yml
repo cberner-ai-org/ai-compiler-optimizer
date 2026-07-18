@@ -13,7 +13,7 @@ permissions:
 jobs:
   checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v6
@@ -21,10 +21,13 @@ jobs:
       - name: Install development tools
         run: |
           sudo apt-get update
-          sudo apt-get install --yes ripgrep
+          sudo apt-get install --yes podman ripgrep
 
       - name: Initialize pinned sources
         run: make init
 
       - name: Check scaffold
         run: make test
+
+      - name: Prove optimizer candidates
+        run: make prove

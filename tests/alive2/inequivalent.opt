@@ -1,0 +1,4 @@
+Name: inequivalent regression
+%result = add i8 %value, 1
+  =>
+%result = add i8 %value, 2

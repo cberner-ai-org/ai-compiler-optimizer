@@ -3,9 +3,10 @@
 ## Status
 
 This project is experimental. Its scaffold builds an editable, pinned stage-1 Rust compiler, loads
-a no-op LLVM keyhole pass into that compiler, and uses the complete path to compile a pinned redb
-benchmark. The pass establishes optimizer plumbing but does not yet transform IR. The project does
-not yet contain an LLM integration or a solver integration.
+a no-op LLVM keyhole pass into that compiler, proves declarative rewrite obligations with a pinned
+Alive2 image, and uses the complete compiler path to compile a pinned redb benchmark. The pass
+establishes optimizer plumbing but does not yet transform IR. The project does not yet contain an
+LLM integration or a transforming solver-accepted candidate.
 
 ## Objective
 
@@ -43,9 +44,11 @@ The system is expected to grow into the following components:
   coding agent, schedules proofs and tests, and records results.
 - **Candidate representation:** describes the input pattern, replacement, type constraints,
   preconditions, and LLVM semantic features used by a rewrite.
-- **Solver adapter:** translates a candidate into an equivalence query and returns a proof,
-  counterexample, or rejection. The model must account for the LLVM semantics relevant to the
-  candidate, including poison, undef, overflow flags, memory behavior, and undefined behavior.
+- **Solver adapter:** `scripts/verify-alive2-proofs.sh` submits one declarative candidate at a time to
+  pinned Alive2 and accepts only one unqualified refinement result. A counterexample, diagnostic,
+  timeout, resource failure, unsupported feature, parse or type error, or ambiguous output is a
+  rejection. The model must account for the LLVM semantics relevant to the candidate, including
+  poison, undef, overflow flags, memory behavior, and undefined behavior.
 - **Pass workspace:** `optimizer` currently contains the no-op LLVM 22 plugin insertion point. It
   will contain generated pass implementations and focused positive and negative tests. Generated
   changes remain ordinary reviewable source code.
@@ -73,6 +76,29 @@ Each candidate moves through a fail-closed pipeline:
 Generating the pass and proof obligation from one declarative candidate representation is preferred:
 it reduces the risk that the proved rewrite and implemented rewrite diverge. If independent forms are
 temporarily necessary, structural consistency checks must be part of acceptance.
+
+## Alive2 proof boundary
+
+[Alive2](https://github.com/AliveToolkit/alive2) is an SMT-backed LLVM refinement checker. Its
+[PLDI 2021 paper](https://doi.org/10.1145/3453483.3454030) defines correctness as the target exposing
+no behavior that the source lacks, which handles LLVM undefined behavior more accurately than plain
+input/output equality. The paper also makes the bounded nature of translation validation explicit.
+[LLM-Vectorizer](https://arxiv.org/abs/2406.04693) demonstrates the relevant LLM architecture:
+generated optimizations are candidates until Alive2 proves them, while unsupported cases and
+resource limits remain inconclusive rather than becoming accepted transformations.
+
+This prototype builds Alive2's declarative `alive` verifier without a second LLVM checkout. Each
+tracked `.opt` file contains exactly one local source-to-target refinement obligation. Poison and
+undef inputs remain enabled. Both SMT and process deadlines are enforced, solver memory is bounded,
+and any stderr output is a rejection. The proof-checker image runs a positive identity obligation and
+a known-inequivalent negative regression during its build, then can rerun the embedded accepted
+obligations without network access.
+
+The current boundary proves the candidate specification, not arbitrary C++ pass code. Before the
+keyhole pass performs a rewrite, the implementation and proof must come from one declarative source
+or gain a structural consistency test. Direct pass-output translation validation with `alive-tv`
+would require a separate LLVM build with RTTI and exceptions; it is intentionally deferred until the
+candidate representation and generated-pass seam exist.
 
 ## Safety model
 
@@ -134,18 +160,20 @@ pass visits generated functions; normal builds do not trace.
 The plugin is compiled against the exact CI LLVM used by the stage-1 compiler, so no second LLVM or
 large `llvm-project` checkout is required. The built pass binary participates in the compiler
 identity used for Cargo cache invalidation, while its source remains attributable through the
-repository revision. Later work must add only solver-accepted rewrites to this insertion point and
-compare pinned baseline and experimental identities. Proof and benchmark artifacts must identify
-the exact compiler, pass set, redb revision, dependency graph, and measurement environment.
+repository revision. Alive2 is independently pinned because proof semantics are an experiment input.
+Later work must add only solver-accepted rewrites to this insertion point and compare pinned
+baseline and experimental identities. Proof and benchmark artifacts must identify the exact
+compiler, pass set, redb revision, dependency graph, and measurement environment.
 
 ## Milestones
 
 1. **Baseline scaffold (current):** pinned editable rustc, pinned redb and dependencies, a loadable
-   no-op optimizer insertion point, persistent compilation caches with explicit provenance, and a
-   containerized benchmark.
+   no-op optimizer insertion point, a fail-closed pinned Alive2 proof gate, persistent compilation
+   caches with explicit provenance, and a containerized benchmark.
 2. **Measurement harness:** pinned inputs, repeated A/B runs, machine metadata, and structured result
    capture.
-3. **Proof prototype:** declarative candidates and a solver adapter for a narrow integer-only subset.
+3. **Proof prototype (scaffold complete):** declarative candidates and a solver adapter for a narrow
+   integer-only subset; candidate-to-pass generation or structural consistency remains.
 4. **Pass prototype:** replace the integrated no-op with one generated and tested solver-proven LLVM
    peephole pass.
 5. **Optimizer integration:** build rustc with accepted passes and use it for the redb A/B benchmark.

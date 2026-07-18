@@ -43,7 +43,9 @@ check_clean_worktree() {
 
 check_revision "${repo_root}/third_party/rust" "${RUST_COMMIT}" "Rust"
 check_revision "${repo_root}/third_party/redb" "${REDB_COMMIT}" "redb"
+check_revision "${repo_root}/third_party/alive2" "${ALIVE2_COMMIT}" "Alive2"
 check_clean_worktree "${repo_root}/third_party/redb" "redb"
+check_clean_worktree "${repo_root}/third_party/alive2" "Alive2"
 
 expected_backtrace="$(git -C "${repo_root}/third_party/rust" ls-tree HEAD library/backtrace | awk '{print $3}')"
 check_revision \
@@ -74,6 +76,9 @@ rg --quiet --fixed-strings "ARG RUST_VERSION=${RUST_VERSION}" \
 rg --quiet --fixed-strings "ARG RUST_COMMIT=${RUST_COMMIT}" \
     "${repo_root}/containers/Containerfile" \
     || fail "Containerfile Rust commit does not match config/versions.env"
+rg --quiet --fixed-strings "ARG ALIVE2_COMMIT=${ALIVE2_COMMIT}" \
+    "${repo_root}/containers/Containerfile" \
+    || fail "Containerfile Alive2 commit does not match config/versions.env"
 rg --quiet --fixed-strings "ARG DEBIAN_SNAPSHOT=${DEBIAN_SNAPSHOT}" \
     "${repo_root}/containers/Containerfile" \
     || fail "Containerfile Debian snapshot does not match config/versions.env"
@@ -97,7 +102,12 @@ snapshot_reference_count="$(
         'apt-get -o Acquire::Check-Valid-Until=false update' \
         "${repo_root}/containers/Containerfile"
 )"
-[[ "${snapshot_reference_count}" == 2 ]] \
+package_install_count="$(
+    rg --count --fixed-strings \
+        'apt-get install --yes --no-install-recommends' \
+        "${repo_root}/containers/Containerfile"
+)"
+[[ "${snapshot_reference_count}" == "${package_install_count}" ]] \
     || fail "every apt package installation must use the pinned Debian snapshot"
 rg --quiet --fixed-strings -- \
     '--build-arg "DEBIAN_SNAPSHOT=${DEBIAN_SNAPSHOT}"' \
@@ -107,6 +117,10 @@ rg --quiet --fixed-strings -- \
     '--build-arg "BUILD_ENVIRONMENT_ID=${BUILD_ENVIRONMENT_ID}"' \
     "${repo_root}/scripts/build-image.sh" \
     || fail "image builds do not pass the configured build environment ID"
+rg --quiet --fixed-strings -- \
+    '--build-arg "ALIVE2_COMMIT=${ALIVE2_COMMIT}"' \
+    "${repo_root}/scripts/build-image.sh" \
+    || fail "image builds do not pass the configured Alive2 revision"
 rg --quiet --fixed-strings \
     'id=ai-compiler-optimizer-rust-${BUILD_ENVIRONMENT_ID}' \
     "${repo_root}/containers/Containerfile" \
@@ -131,13 +145,20 @@ rg --quiet --fixed-strings "RUSTC=/usr/local/bin/rustc-with-keyhole" \
 rg --quiet --fixed-strings "build-redb-benchmark" \
     "${repo_root}/containers/Containerfile" \
     || fail "redb benchmark does not use Cargo-reported artifact selection"
+rg --quiet --fixed-strings "verify-alive2-proofs /opt/aco/proofs" \
+    "${repo_root}/containers/Containerfile" \
+    || fail "proof-checker image does not verify accepted optimizer obligations"
+rg --quiet --fixed-strings -- '--network none' \
+    "${repo_root}/scripts/run-alive2-proofs.sh" \
+    || fail "proof reruns do not disable network access"
 rg --quiet --fixed-strings "ripgrep" "${repo_root}/README.md" \
     || fail "README prerequisites do not document ripgrep"
 
 for git_pointer in \
     third_party/rust/.git \
     third_party/rust/library/backtrace/.git \
-    third_party/redb/.git; do
+    third_party/redb/.git \
+    third_party/alive2/.git; do
     rg --quiet --fixed-strings "${git_pointer}" "${repo_root}/.containerignore" \
         || fail ".containerignore does not exclude ${git_pointer}"
 done
@@ -150,6 +171,7 @@ for script in "${repo_root}"/tests/*.sh; do
 done
 bash -n "${repo_root}/optimizer/build.sh"
 "${repo_root}/tests/cargo-artifact-selection.sh"
+"${repo_root}/tests/alive2-proof-gate.sh"
 "${repo_root}/tests/rustc-keyhole-wrapper.sh"
 
 git -C "${repo_root}" diff --check

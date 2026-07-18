@@ -4,6 +4,7 @@ third_party/rust/.git
 third_party/rust/.github
 third_party/rust/library/backtrace/.git
 third_party/redb/.git
+third_party/alive2/.git
 target
 build
 third_party/rust/build
