@@ -75,6 +75,12 @@ rg --quiet --fixed-strings "ARG RUST_COMMIT=${RUST_COMMIT}" \
 rg --quiet --fixed-strings "with-custom-toolchain cargo test" \
     "${repo_root}/containers/Containerfile" \
     || fail "redb tests do not use the compiler-aware Cargo wrapper"
+rg --quiet --fixed-strings "libaco_keyhole_pass.so" \
+    "${repo_root}/containers/Containerfile" \
+    || fail "Containerfile does not install the keyhole pass plugin"
+rg --quiet --fixed-strings "RUSTC=/usr/local/bin/rustc-with-keyhole" \
+    "${repo_root}/containers/Containerfile" \
+    || fail "container Cargo builds do not use the keyhole rustc wrapper"
 rg --quiet --fixed-strings "build-redb-benchmark" \
     "${repo_root}/containers/Containerfile" \
     || fail "redb benchmark does not use Cargo-reported artifact selection"
@@ -95,7 +101,9 @@ done
 for script in "${repo_root}"/tests/*.sh; do
     bash -n "${script}"
 done
+bash -n "${repo_root}/optimizer/build.sh"
 "${repo_root}/tests/cargo-artifact-selection.sh"
+"${repo_root}/tests/rustc-keyhole-wrapper.sh"
 
 git -C "${repo_root}" diff --check
 echo "scaffolding checks passed"

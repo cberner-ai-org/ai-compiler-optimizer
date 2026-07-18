@@ -15,28 +15,40 @@ WORKDIR /usr/src/rust
 COPY third_party/rust/ ./
 COPY config/rust-git-commit-info ./git-commit-info
 COPY config/rust-bootstrap.toml /etc/rust-bootstrap.toml
+COPY optimizer/ /usr/src/optimizer/
 
-# The cache mount makes the next compiler edit incremental. The copied sysroot
-# is kept outside that mount so it is available to the following image stage.
+# The cache mount makes the next compiler edit incremental. The plugin has a
+# separate identity so pass-only edits do not rebuild rustc. The copied sysroot
+# is kept outside the mount so it is available to the following image stage.
 RUN --mount=type=cache,id=ai-compiler-optimizer-rust-1.97.1,target=/usr/src/rust/build \
     --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local/cargo/registry \
     set -eux; \
-    source_id="$({ \
+    rustc_source_id="$({ \
         find . -path ./build -prune -o -type f -print0 \
             | LC_ALL=C sort -z \
             | xargs -0 -r sha256sum; \
         sha256sum /etc/rust-bootstrap.toml; \
     } | sha256sum | cut -d ' ' -f 1)"; \
-    source_id_short="$(printf '%s' "${source_id}" | cut -c1-16)"; \
+    rustc_source_id_short="$(printf '%s' "${rustc_source_id}" | cut -c1-16)"; \
     ./x build \
         --config /etc/rust-bootstrap.toml \
-        --set "build.description=ai-compiler-optimizer-${source_id_short}" \
+        --set "build.description=ai-compiler-optimizer-${rustc_source_id_short}" \
         --stage 1 \
         library; \
     build_host="$(rustc --version --verbose | sed -n 's/^host: //p')"; \
     mkdir -p /opt/rust-custom; \
     cp -a "build/${build_host}/stage1/." /opt/rust-custom/; \
-    printf '%s\n' "${source_id}" > /opt/rust-custom/.compiler-build-id
+    LLVM_CONFIG="build/${build_host}/ci-llvm/bin/llvm-config" \
+        OUTPUT=/tmp/libaco_keyhole_pass.so \
+        /usr/src/optimizer/build.sh; \
+    install --mode 0755 \
+        /tmp/libaco_keyhole_pass.so \
+        /opt/rust-custom/lib/libaco_keyhole_pass.so; \
+    compiler_build_id="$({ \
+        printf 'rustc:%s\n' "${rustc_source_id}"; \
+        sha256sum /opt/rust-custom/lib/libaco_keyhole_pass.so; \
+    } | sha256sum | cut -d ' ' -f 1)"; \
+    printf '%s\n' "${compiler_build_id}" > /opt/rust-custom/.compiler-build-id
 
 FROM ${RUST_IMAGE} AS toolchain
 
@@ -44,33 +56,41 @@ ARG RUST_VERSION
 ARG RUST_COMMIT
 
 LABEL org.opencontainers.image.title="AI compiler optimizer custom Rust toolchain" \
-      org.opencontainers.image.description="Stage-1 Rust 1.97.1 compiler baseline; no custom optimizer"
+      org.opencontainers.image.description="Stage-1 Rust 1.97.1 compiler with the ACO no-op keyhole pass"
 
 COPY --from=rustc-builder /opt/rust-custom/ /opt/rust-custom/
 COPY scripts/with-custom-toolchain.sh /usr/local/bin/with-custom-toolchain
+COPY scripts/rustc-with-keyhole.sh /usr/local/bin/rustc-with-keyhole
 COPY tests/compiler-cache-regression.sh /usr/local/bin/compiler-cache-regression
 COPY tests/compiler-cache-probe/ /opt/compiler-cache-probe/
 COPY tests/toolchain_smoke.rs /tmp/toolchain_smoke.rs
 
 ENV PATH="/opt/rust-custom/bin:/usr/local/cargo/bin:${PATH}" \
-    RUSTC=/opt/rust-custom/bin/rustc \
+    RUSTC=/usr/local/bin/rustc-with-keyhole \
     RUSTUP_TOOLCHAIN=${RUST_VERSION}
 
 RUN set -eux; \
     test -s /opt/rust-custom/.compiler-build-id; \
-    test "$(rustc --print sysroot)" = "/opt/rust-custom"; \
-    rustc --version | grep --fixed-strings "ai-compiler-optimizer"; \
-    rustc --version --verbose; \
-    rustc --version --verbose | grep --fixed-strings "commit-hash: ${RUST_COMMIT}"; \
-    rustc --edition 2024 -O /tmp/toolchain_smoke.rs -o /tmp/toolchain-smoke; \
+    test -s /opt/rust-custom/lib/libaco_keyhole_pass.so; \
+    test "$("${RUSTC}" --print sysroot)" = "/opt/rust-custom"; \
+    "${RUSTC}" --version | grep --fixed-strings "ai-compiler-optimizer"; \
+    "${RUSTC}" --version --verbose; \
+    "${RUSTC}" --version --verbose | grep --fixed-strings "commit-hash: ${RUST_COMMIT}"; \
+    ACO_KEYHOLE_TRACE=1 "${RUSTC}" \
+        --edition 2024 \
+        -O \
+        /tmp/toolchain_smoke.rs \
+        -o /tmp/toolchain-smoke \
+        2> /tmp/aco-keyhole-trace; \
+    grep --fixed-strings "aco-keyhole: ran on" /tmp/aco-keyhole-trace; \
     /tmp/toolchain-smoke; \
-    rm /tmp/toolchain-smoke /tmp/toolchain_smoke.rs
+    rm /tmp/aco-keyhole-trace /tmp/toolchain-smoke /tmp/toolchain_smoke.rs
 
-# Cargo must remain fresh for an unchanged compiler, but touching either the
-# compiler executable or its driver must alter the Cargo fingerprint.
+# Cargo must remain fresh for unchanged inputs, but touching the compiler,
+# driver, or plugin must alter the Cargo fingerprint.
 RUN compiler-cache-regression
 
-CMD ["rustc", "--version", "--verbose"]
+CMD ["/usr/local/bin/rustc-with-keyhole", "--version", "--verbose"]
 
 FROM toolchain AS redb-builder
 
@@ -94,7 +114,7 @@ COPY scripts/build-redb-benchmark.sh /usr/local/bin/build-redb-benchmark
 RUN --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=ai-compiler-optimizer-redb-target,target=/usr/src/redb/target \
     set -eux; \
-    test "$(rustc --print sysroot)" = "/opt/rust-custom"; \
+    test "$("${RUSTC}" --print sysroot)" = "/opt/rust-custom"; \
     cargo --version | grep --fixed-strings "cargo ${RUST_VERSION}"; \
     with-custom-toolchain cargo test --locked --package redb@4.1.0 --lib; \
     build-redb-benchmark
@@ -102,7 +122,7 @@ RUN --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local
 FROM toolchain AS redb-benchmark
 
 LABEL org.opencontainers.image.title="redb benchmark with custom Rust compiler" \
-      org.opencontainers.image.description="redb 4.1.0 benchmark built by the stage-1 Rust 1.97.1 compiler baseline"
+      org.opencontainers.image.description="redb 4.1.0 benchmark built by Rust 1.97.1 with the ACO no-op keyhole pass"
 
 COPY --from=redb-builder /usr/local/bin/redb-benchmark /usr/local/bin/redb-benchmark
 
