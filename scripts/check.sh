@@ -66,12 +66,30 @@ rg --quiet --multiline \
 rg --quiet --fixed-strings "ARG RUST_IMAGE=${RUST_IMAGE}" \
     "${repo_root}/containers/Containerfile" \
     || fail "Containerfile base image does not match config/versions.env"
+[[ "${RUST_IMAGE}" =~ @sha256:[0-9a-f]{64}$ ]] \
+    || fail "RUST_IMAGE must end in a sha256 registry digest"
 rg --quiet --fixed-strings "ARG RUST_VERSION=${RUST_VERSION}" \
     "${repo_root}/containers/Containerfile" \
     || fail "Containerfile Rust version does not match config/versions.env"
 rg --quiet --fixed-strings "ARG RUST_COMMIT=${RUST_COMMIT}" \
     "${repo_root}/containers/Containerfile" \
     || fail "Containerfile Rust commit does not match config/versions.env"
+rg --quiet --fixed-strings "ARG DEBIAN_SNAPSHOT=${DEBIAN_SNAPSHOT}" \
+    "${repo_root}/containers/Containerfile" \
+    || fail "Containerfile Debian snapshot does not match config/versions.env"
+[[ "${DEBIAN_SNAPSHOT}" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] \
+    || fail "DEBIAN_SNAPSHOT must use YYYYMMDDTHHMMSSZ format"
+snapshot_reference_count="$(
+    rg --count --fixed-strings \
+        'apt-get -o Acquire::Check-Valid-Until=false update' \
+        "${repo_root}/containers/Containerfile"
+)"
+[[ "${snapshot_reference_count}" == 2 ]] \
+    || fail "every apt package installation must use the pinned Debian snapshot"
+rg --quiet --fixed-strings -- \
+    '--build-arg "DEBIAN_SNAPSHOT=${DEBIAN_SNAPSHOT}"' \
+    "${repo_root}/scripts/build-image.sh" \
+    || fail "image builds do not pass the configured Debian snapshot"
 rg --quiet --fixed-strings "with-custom-toolchain cargo test" \
     "${repo_root}/containers/Containerfile" \
     || fail "redb tests do not use the compiler-aware Cargo wrapper"
