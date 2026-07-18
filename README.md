@@ -17,6 +17,12 @@ The source inputs are Git submodules pinned to:
 - Rust 1.97.1 at `8bab26f4f68e0e26f0bb7960be334d5b520ea452`
 - redb 4.1.0 at `6ed1f981ba4deab0b2adbdd7bccb46ec409b2191`
 
+The native build environment is pinned too. `config/versions.env` identifies the
+Rust Bookworm image by registry digest and fixes apt to Debian snapshot
+`20260713T000000Z`; image labels retain both identities. Updating either pin is
+an explicit benchmark-input change and requires rebuilding the baseline and
+experimental artifacts together.
+
 Because redb is a library and does not commit a workspace lockfile, this
 repository tracks `config/redb-Cargo.lock` for the benchmark's transitive
 dependencies. It was generated with Cargo 1.97.1 while respecting redb's Rust
@@ -67,8 +73,8 @@ stage-1 compiler and standard-library sysroot to `/opt/rust-custom`, builds
 smoke program through the pass. Its persistent build cache makes subsequent
 compiler edits incremental; pass-only edits do not rebuild rustc.
 
-The custom sysroot does not build Cargo. Cargo 1.97.1 from the pinned official
-image acts only as the orchestrator, with `RUSTC` fixed to
+The custom sysroot does not build Cargo. Cargo 1.97.1 from the digest-pinned
+official image acts only as the orchestrator, with `RUSTC` fixed to
 `rustc-with-keyhole`. That wrapper invokes the custom compiler with
 `-Zllvm-plugins=/opt/rust-custom/lib/libaco_keyhole_pass.so` and
 `-Cpasses=aco-keyhole`.

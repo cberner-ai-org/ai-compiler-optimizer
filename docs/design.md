@@ -106,6 +106,11 @@ compiles `redb_benchmark` with the plugin-aware compiler wrapper, and copies Car
 executable into the final image. `make benchmark` runs the five-million-item load, read, removal,
 and compaction workload.
 
+The container base is selected by an immutable registry digest, and every apt installation resolves
+against a dated Debian snapshot. Both identities are centralized in `config/versions.env`, enforced
+by scaffold checks, and copied into the resulting image labels. Changing either is a benchmark-input
+change, so baseline and experimental artifacts must be rebuilt from the same new environment.
+
 Compiler and Cargo build directories are persistent caches, not provenance authorities. Compiler
 source and artifact identities participate in Cargo's fingerprint, while executable selection comes
 from the current Cargo event stream. The redb worktree must be clean and its dependency lockfile is
