@@ -42,8 +42,14 @@ compiler_artifact_id="$({
 } | sha256sum | awk '{print $1}')"
 
 metadata_flag="-Cmetadata=custom-toolchain-${compiler_artifact_id}"
-if [[ -n "${CARGO_ENCODED_RUSTFLAGS:-}" ]]; then
-    export CARGO_ENCODED_RUSTFLAGS+=$'\x1f'"${metadata_flag}"
+# Cargo gives the encoded channel precedence whenever the variable exists,
+# including when it is empty. Use the same presence rule so the identity flag
+# is never written to an ignored channel.
+if [[ -v CARGO_ENCODED_RUSTFLAGS ]]; then
+    if [[ -n "${CARGO_ENCODED_RUSTFLAGS}" ]]; then
+        CARGO_ENCODED_RUSTFLAGS+=$'\x1f'
+    fi
+    export CARGO_ENCODED_RUSTFLAGS+="${metadata_flag}"
 else
     export RUSTFLAGS="${RUSTFLAGS:+${RUSTFLAGS} }${metadata_flag}"
 fi
