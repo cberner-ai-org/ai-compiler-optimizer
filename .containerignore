@@ -1,0 +1,4 @@
+*
+!Containerfile.redb-bench
+!scripts/
+!scripts/run-redb-benchmark.sh
