@@ -1,19 +1,20 @@
-# Keyhole optimizer plugin
+# ACO optimizer plugin
 
-`KeyholePass.cpp` defines the `aco-keyhole` LLVM new-pass-manager pipeline entry. The current pass
-visits every defined function, changes no IR, and preserves every analysis. It is the integration
-seam for future solver-proven peephole rewrites.
+`OptimizerPlugin.cpp` defines the aggregate `aco-passes` LLVM new-pass-manager pipeline. The current
+keyhole pass visits every defined function, changes no IR, and preserves every analysis. Add future
+solver-proven passes to `addAcoPasses` in their intended pipeline order.
 
 The container build compiles the plugin with the `llvm-config --cxxflags` from rustc's matching CI
-LLVM. `rustc-with-keyhole` then loads it with `-Zllvm-plugins` and appends it to rustc's per-module
-pipeline with `-Cpasses=aco-keyhole`. This keeps pass-only edits independent of the much larger
-stage-1 compiler build.
+LLVM. `rustc-with-aco-passes` loads it with `-Zllvm-plugins` and appends the aggregate pipeline to
+rustc's per-module pipeline with `-Cpasses=aco-passes`. This keeps pass-only edits independent of
+the much larger stage-1 compiler build.
 
-Set `ACO_KEYHOLE_TRACE=1` for an integration check that prints one line for every function visited.
-Production benchmark builds leave tracing unset.
+Set `ACO_OPTIMIZER_TRACE=1` for an integration check that prints one line for every function
+visited. Production benchmark builds leave tracing unset.
 
 Do not add a transforming rewrite here until its proof obligation and focused positive and negative
-tests are available. Returning `PreservedAnalyses::all()` is valid only while the pass changes no IR.
+tests are available. A pass must return analysis preservation that reflects every change it makes;
+`PreservedAnalyses::all()` is valid only while the pipeline changes no IR.
 
 `proofs/` contains one declarative Alive2 refinement obligation per candidate. Run `make prove` to
 build the pinned solver and check every obligation with fail-closed timeout, resource, diagnostic,

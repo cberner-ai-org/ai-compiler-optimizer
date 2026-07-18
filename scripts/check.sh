@@ -76,6 +76,12 @@ rg --quiet --fixed-strings "ARG RUST_VERSION=${RUST_VERSION}" \
 rg --quiet --fixed-strings "ARG RUST_COMMIT=${RUST_COMMIT}" \
     "${repo_root}/containers/Containerfile" \
     || fail "Containerfile Rust commit does not match config/versions.env"
+rg --quiet --fixed-strings "ARG REDB_VERSION=${REDB_VERSION}" \
+    "${repo_root}/containers/Containerfile" \
+    || fail "Containerfile redb version does not match config/versions.env"
+rg --quiet --fixed-strings "ARG REDB_COMMIT=${REDB_COMMIT}" \
+    "${repo_root}/containers/Containerfile" \
+    || fail "Containerfile redb commit does not match config/versions.env"
 rg --quiet --fixed-strings "ARG ALIVE2_COMMIT=${ALIVE2_COMMIT}" \
     "${repo_root}/containers/Containerfile" \
     || fail "Containerfile Alive2 commit does not match config/versions.env"
@@ -121,6 +127,25 @@ rg --quiet --fixed-strings -- \
     '--build-arg "ALIVE2_COMMIT=${ALIVE2_COMMIT}"' \
     "${repo_root}/scripts/build-image.sh" \
     || fail "image builds do not pass the configured Alive2 revision"
+rg --quiet --fixed-strings -- \
+    '--build-arg "REDB_COMMIT=${REDB_COMMIT}"' \
+    "${repo_root}/scripts/build-image.sh" \
+    || fail "image builds do not pass the configured redb revision"
+passthrough_line="$(
+    rg --line-number --fixed-strings '    "$@" \' \
+        "${repo_root}/scripts/build-image.sh" \
+        | cut -d: -f1
+)"
+environment_arg_line="$(
+    rg --line-number --fixed-strings \
+        '    --build-arg "BUILD_ENVIRONMENT_ID=${BUILD_ENVIRONMENT_ID}" \' \
+        "${repo_root}/scripts/build-image.sh" \
+        | cut -d: -f1
+)"
+[[ "${passthrough_line}" =~ ^[0-9]+$ \
+    && "${environment_arg_line}" =~ ^[0-9]+$ \
+    && passthrough_line -lt environment_arg_line ]] \
+    || fail "configured build arguments must follow passthrough options"
 rg --quiet --fixed-strings \
     'id=ai-compiler-optimizer-rust-${BUILD_ENVIRONMENT_ID}' \
     "${repo_root}/containers/Containerfile" \
@@ -133,15 +158,46 @@ rg --quiet --fixed-strings \
     'build-environment:%s\n' \
     "${repo_root}/containers/Containerfile" \
     || fail "rustc build identity does not include the pinned environment"
-rg --quiet --fixed-strings "with-custom-toolchain cargo test" \
+rg --quiet --fixed-strings "with-compiler-variant baseline" \
     "${repo_root}/containers/Containerfile" \
-    || fail "redb tests do not use the compiler-aware Cargo wrapper"
-rg --quiet --fixed-strings "libaco_keyhole_pass.so" \
+    || fail "redb baseline does not disable custom optimization passes"
+rg --quiet --fixed-strings "with-compiler-variant optimized" \
     "${repo_root}/containers/Containerfile" \
-    || fail "Containerfile does not install the keyhole pass plugin"
-rg --quiet --fixed-strings "RUSTC=/usr/local/bin/rustc-with-keyhole" \
+    || fail "redb optimized variant does not enable custom optimization passes"
+rg --quiet --fixed-strings "libaco_optimizer.so" \
     "${repo_root}/containers/Containerfile" \
-    || fail "container Cargo builds do not use the keyhole rustc wrapper"
+    || fail "Containerfile does not install the optimizer pass plugin"
+rg --quiet --fixed-strings "redb-benchmark-baseline" \
+    "${repo_root}/containers/Containerfile" \
+    || fail "Containerfile does not retain the baseline benchmark artifact"
+rg --quiet --fixed-strings "redb-benchmark-optimized" \
+    "${repo_root}/containers/Containerfile" \
+    || fail "Containerfile does not retain the optimized benchmark artifact"
+rg --quiet --fixed-strings 'CARGO_TARGET_DIR="${target_root%/}/aco-${variant}-${variant_artifact_id}"' \
+    "${repo_root}/scripts/with-compiler-variant.sh" \
+    || fail "compiler variants do not select identity-scoped Cargo target directories"
+if rg --quiet --fixed-strings -- '-Cmetadata=' \
+    "${repo_root}/scripts/with-compiler-variant.sh"; then
+    fail "compiler variant identity must not alter benchmark crate metadata"
+fi
+rg --quiet --fixed-strings "compare-redb-benchmarks" \
+    "${repo_root}/containers/Containerfile" \
+    || fail "benchmark image does not run the A/B comparison harness"
+rg --quiet --fixed-strings "benchmark-provenance.tsv" \
+    "${repo_root}/containers/Containerfile" \
+    || fail "benchmark image does not retain its exact build provenance"
+rg --quiet --fixed-strings "write-compiler-artifact-manifest" \
+    "${repo_root}/containers/Containerfile" \
+    || fail "toolchain does not precompute its complete compiler artifact identity"
+rg --quiet --fixed-strings "llvm_library_set_sha256" \
+    "${repo_root}/scripts/write-compiler-artifact-manifest.sh" \
+    || fail "compiler artifact identity does not include LLVM"
+rg --quiet --fixed-strings "provenance manifest sha256" \
+    "${repo_root}/scripts/compare-redb-benchmarks.sh" \
+    || fail "benchmark runner does not report its build provenance"
+rg --quiet --fixed-strings "comparison runner does not match the provenance manifest" \
+    "${repo_root}/scripts/compare-redb-benchmarks.sh" \
+    || fail "benchmark runner is not bound to its provenance manifest"
 rg --quiet --fixed-strings "build-redb-benchmark" \
     "${repo_root}/containers/Containerfile" \
     || fail "redb benchmark does not use Cargo-reported artifact selection"
@@ -172,7 +228,10 @@ done
 bash -n "${repo_root}/optimizer/build.sh"
 "${repo_root}/tests/cargo-artifact-selection.sh"
 "${repo_root}/tests/alive2-proof-gate.sh"
-"${repo_root}/tests/rustc-keyhole-wrapper.sh"
+"${repo_root}/tests/benchmark-provenance.sh"
+"${repo_root}/tests/build-argument-protection.sh"
+"${repo_root}/tests/compiler-variant-wrapper.sh"
+"${repo_root}/tests/redb-benchmark-comparison.sh"
 
 git -C "${repo_root}" diff --check
 echo "scaffolding checks passed"

@@ -1,6 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+variant="${1:-}"
+destination="${2:-}"
+case "${variant}" in
+    baseline|optimized)
+        ;;
+    *)
+        echo "usage: $0 baseline|optimized DESTINATION" >&2
+        exit 2
+        ;;
+esac
+[[ -n "${destination}" ]] || {
+    echo "usage: $0 baseline|optimized DESTINATION" >&2
+    exit 2
+}
+
 messages_file="$(mktemp)"
 trap 'rm -f -- "${messages_file}"' EXIT
 
@@ -8,7 +23,7 @@ trap 'rm -f -- "${messages_file}"' EXIT
 # retaining this invocation's JSON event stream as the sole authority for
 # executable selection.
 set +e
-with-custom-toolchain cargo bench \
+with-compiler-variant "${variant}" cargo bench \
     --locked \
     --no-run \
     --package redb-bench \
@@ -29,5 +44,5 @@ benchmark_path="$(
 [[ -x "${benchmark_path}" ]] \
     || { echo "Cargo-reported benchmark is not executable: ${benchmark_path}" >&2; exit 1; }
 
-install --mode 0755 "${benchmark_path}" /usr/local/bin/redb-benchmark
-echo "installed Cargo-reported benchmark: ${benchmark_path}"
+install --mode 0755 "${benchmark_path}" "${destination}"
+echo "installed ${variant} Cargo-reported benchmark: ${benchmark_path}"

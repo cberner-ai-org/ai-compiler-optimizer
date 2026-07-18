@@ -7,10 +7,11 @@ them equivalent with a solver, and measuring them against real Rust programs.
 The initial performance target is [redb](https://github.com/cberner/redb).
 
 The current scaffold builds an editable, pinned Rust compiler, attaches a
-loadable no-op LLVM keyhole pass, checks declarative rewrite obligations with a
-pinned Alive2 solver image, and uses the compiler path to compile a pinned redb
-benchmark. The pass changes no IR yet; it establishes the insertion point for
-later solver-proven rewrites. See the [design document](docs/design.md) for the
+loadable no-op LLVM optimization pipeline, checks declarative rewrite
+obligations with a pinned Alive2 solver image, and compiles paired redb
+benchmarks with that pipeline disabled and enabled. The pass changes no IR yet;
+it establishes the insertion point and A/B measurement path for later
+solver-proven rewrites. See the [design document](docs/design.md) for the
 planned architecture and safety model.
 
 The source inputs are Git submodules pinned to:
@@ -44,8 +45,9 @@ dependencies. It was generated with Cargo 1.97.1 while respecting redb's Rust
 [`just`](https://github.com/casey/just) is optional; its recipes delegate to the
 same Make targets documented below.
 
-The full redb benchmark configures a 4 GiB database cache, loads five million
-items, and can run for several minutes. Run it on an otherwise idle host when
+Each full redb benchmark configures a 4 GiB database cache, loads five million
+items, and can run for several minutes. The comparison runs both variants, so
+allow at least twice the time and run it on an otherwise idle host when
 collecting useful numbers.
 
 ## Initialize and check the sources
@@ -98,24 +100,28 @@ podman run --rm localhost/ai-compiler-optimizer-toolchain:rust-1.97.1
 
 The `toolchain` image stage builds `./x build --stage 1 library`, copies the
 stage-1 compiler and standard-library sysroot to `/opt/rust-custom`, builds
-`libaco_keyhole_pass.so` against rustc's exact LLVM, and compiles and runs a
-smoke program through the pass. Its persistent build cache makes subsequent
-compiler edits incremental; pass-only edits do not rebuild rustc.
+`libaco_optimizer.so` against rustc's exact LLVM, and compiles and runs a smoke
+program both without and with the pass pipeline. Its persistent build cache
+makes subsequent compiler edits incremental; pass-only edits do not rebuild
+rustc.
 
 The custom sysroot does not build Cargo. Cargo 1.97.1 from the digest-pinned
-official image acts only as the orchestrator, with `RUSTC` fixed to
-`rustc-with-keyhole`. That wrapper invokes the custom compiler with
-`-Zllvm-plugins=/opt/rust-custom/lib/libaco_keyhole_pass.so` and
-`-Cpasses=aco-keyhole`.
+official image acts only as the orchestrator. `with-compiler-variant baseline`
+sets `RUSTC` to the unmodified stage-1 compiler invocation;
+`with-compiler-variant optimized` selects `rustc-with-aco-passes`, which adds
+`-Zllvm-plugins=/opt/rust-custom/lib/libaco_optimizer.so` and
+`-Cpasses=aco-passes`.
 
-Each toolchain build records an identity derived from the Rust source,
-bootstrap configuration, and built optimizer plugin. Before compiling redb,
-`with-custom-toolchain` combines that identity with the `rustc`,
-`librustc_driver`, plugin, and wrapper artifacts and adds it to Cargo's tracked
-compiler flags. This prevents the persistent target cache from reusing
-benchmark artifacts after compiler or pass changes even though the pinned
-`rustc -vV` commit remains unchanged. An image-build regression independently
-checks rustc-only, driver-only, and plugin-only mutations.
+After assembling the toolchain, the image generates one compiler-artifact
+manifest and ID covering the compiler source identity, `rustc`,
+`librustc_driver`, `libLLVM`, and the complete sysroot. Both
+`with-compiler-variant` and benchmark provenance consume that precomputed ID;
+they do not reconstruct subsets of compiler inputs. The optimized variant adds
+the plugin and rustc wrapper to its identity, then selects a separate Cargo
+target directory. This prevents stale cache reuse without identity-only rustc
+flags that could change symbol names or binary layout. An image regression
+checks rustc-, driver-, LLVM-, sysroot-, plugin-, and wrapper-only mutations and
+confirms pass-only changes leave the baseline cache fresh.
 
 ## Build and run the redb benchmark
 
@@ -125,17 +131,39 @@ make benchmark
 ```
 
 The benchmark image build verifies the custom sysroot, runs redb's library
-tests, and compiles `redb_benchmark` through the keyhole wrapper. The target
-cache may contain outputs from several compiler identities, so installation
-uses the executable path emitted by the current Cargo invocation rather than
+tests in both compiler modes, and compiles `redb_benchmark` twice. The baseline
+artifact uses the stage-1 compiler without custom pass flags; the optimized
+artifact uses the same compiler with the ACO pipeline enabled. The target cache
+may contain outputs from several compiler identities, so each installation uses
+the executable path emitted by its current Cargo invocation rather than
 directory timestamps.
 
-The final image contains the custom toolchain and benchmark executable but none
-of their build trees. Pass Podman options through the runner when controlling
-the benchmark environment:
+The final runtime image excludes the custom compiler and both build trees. The
+benchmark-builder first assembles both executables, the A/B runner, and the
+clock helper, then generates provenance over that complete runtime bundle; the
+final stage copies those exact files together. One round runs baseline then
+optimized; later rounds reverse the order to reduce ordering bias. Output from
+each benchmark is labeled, and the final table compares total wall time with
+positive percentages meaning the optimized variant was faster. Elapsed samples
+come from `clock_gettime(CLOCK_MONOTONIC)`;
+the runner rejects non-positive samples and reports both online CPU count and
+the effective affinity list/count inherited by the benchmarks. The clock helper
+is built from repository source and recorded in the provenance manifest. One
+round is a plumbing check, not statistically meaningful evidence. Set
+`ACO_BENCHMARK_RUNS` through Podman for repeated measurements, and pass other
+Podman options through the runner when controlling the environment:
 
 ```console
-./scripts/run-redb-benchmark.sh --cpuset-cpus=2-5
+./scripts/run-redb-benchmark.sh --cpuset-cpus=2-5 --env ACO_BENCHMARK_RUNS=3
+```
+
+To retain the raw per-run wall times, mount an output directory and select a
+result path inside it:
+
+```console
+./scripts/run-redb-benchmark.sh \
+  --volume "$PWD/results:/results:Z" \
+  --env ACO_BENCHMARK_RESULTS=/results/redb.tsv
 ```
 
 The compiler and Cargo target directories use environment-scoped Podman build
@@ -143,19 +171,31 @@ caches. The Cargo registry cache is shared across environments because locked
 crate downloads are content-addressed and checksum-verified. Bootstrap and
 source changes keep using the current environment's incremental compiler cache;
 changing either native environment pin automatically selects fresh mutable
-caches.
+caches. Podman options passed to `build-image.sh` cannot override the protected
+Rust, redb, Alive2, base-image, snapshot, or build-environment arguments.
+
+The benchmark runtime embeds
+`/usr/local/share/ai-compiler-optimizer/benchmark-provenance.tsv`. It records the
+compiler artifact ID, hashes of rustc, its driver set, LLVM and sysroot, the
+optimizer plugin and wrappers, Cargo, the redb revision and lockfile, both
+benchmark binaries, the comparison runner, and the pinned native environment.
+The runner verifies itself, the clock, and both binaries before printing the
+complete manifest and starting an experiment.
 
 ## Layout
 
 - `third_party/rust`: editable Rust compiler submodule
 - `third_party/redb`: pinned benchmark submodule
 - `third_party/alive2`: pinned LLVM refinement checker submodule
-- `optimizer`: LLVM 22 new-pass-manager plugin and its focused build helper
+- `optimizer`: aggregate LLVM 22 new-pass-manager plugin and proof obligations
 - `optimizer/proofs`: declarative Alive2 candidate and scaffold obligations
 - `config/rust-bootstrap.toml`: stage-1 compiler build configuration
 - `config/redb-Cargo.lock`: pinned benchmark dependency graph
 - `containers/Containerfile`: compiler, toolchain, and benchmark image stages
-- `scripts/rustc-with-keyhole.sh`: rustc wrapper that loads and schedules the pass
+- `scripts/with-compiler-variant.sh`: cache-safe baseline/optimized Cargo selector
+- `scripts/write-compiler-artifact-manifest.sh`: complete toolchain identity owner
+- `scripts/rustc-with-aco-passes.sh`: rustc wrapper that loads the custom pass pipeline
+- `scripts/compare-redb-benchmarks.sh`: alternating paired redb benchmark runner
 - `scripts/verify-alive2-proofs.sh`: fail-closed proof-result adapter
 - `scripts/check.sh`: revision and scaffolding consistency checks
 - `scripts/build-image.sh`: Podman image build entry point

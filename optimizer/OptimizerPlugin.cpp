@@ -14,7 +14,7 @@ class KeyholePass : public llvm::PassInfoMixin<KeyholePass> {
 public:
   llvm::PreservedAnalyses run(llvm::Function &Function,
                               llvm::FunctionAnalysisManager &) {
-    if (std::getenv("ACO_KEYHOLE_TRACE"))
+    if (std::getenv("ACO_OPTIMIZER_TRACE"))
       llvm::errs() << "aco-keyhole: ran on " << Function.getName() << '\n';
 
     // This is the integration seam for future solver-proven peephole rewrites.
@@ -23,20 +23,25 @@ public:
   }
 };
 
+void addAcoPasses(llvm::ModulePassManager &ModulePasses) {
+  // Add accepted custom optimization passes here in pipeline order.
+  ModulePasses.addPass(
+      llvm::createModuleToFunctionPassAdaptor(KeyholePass()));
+}
+
 llvm::PassPluginLibraryInfo getPluginInfo() {
   return {
       LLVM_PLUGIN_API_VERSION,
-      "aco-keyhole",
+      "aco-optimizer",
       LLVM_VERSION_STRING,
       [](llvm::PassBuilder &Builder) {
         Builder.registerPipelineParsingCallback(
             [](llvm::StringRef Name, llvm::ModulePassManager &ModulePasses,
                llvm::ArrayRef<llvm::PassBuilder::PipelineElement>) {
-              if (Name != "aco-keyhole")
+              if (Name != "aco-passes")
                 return false;
 
-              ModulePasses.addPass(llvm::createModuleToFunctionPassAdaptor(
-                  KeyholePass()));
+              addAcoPasses(ModulePasses);
               return true;
             });
       },

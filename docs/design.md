@@ -3,10 +3,11 @@
 ## Status
 
 This project is experimental. Its scaffold builds an editable, pinned stage-1 Rust compiler, loads
-a no-op LLVM keyhole pass into that compiler, proves declarative rewrite obligations with a pinned
-Alive2 image, and uses the complete compiler path to compile a pinned redb benchmark. The pass
-establishes optimizer plumbing but does not yet transform IR. The project does not yet contain an
-LLM integration or a transforming solver-accepted candidate.
+a no-op LLVM optimization pipeline into that compiler, proves declarative rewrite obligations with
+a pinned Alive2 image, and uses the complete compiler path to compile paired pinned redb benchmarks
+with the pipeline disabled and enabled. The pass establishes optimizer and A/B measurement plumbing
+but does not yet transform IR. The project does not yet contain an LLM integration or a transforming
+solver-accepted candidate.
 
 ## Objective
 
@@ -124,13 +125,14 @@ tests, the relevant Rust test suites, redb tests, and end-to-end benchmarks. The
 against pass plumbing mistakes, mismatched tool versions, and errors outside the solver's proof
 boundary.
 
-## redb benchmark baseline
+## redb benchmark comparison
 
 The current workflow pins Rust and redb as submodules and builds an editable stage-1 compiler plus
-the no-op keyhole plugin in a Podman image. `make benchmark-image` runs redb's library tests,
-compiles `redb_benchmark` with the plugin-aware compiler wrapper, and copies Cargo's reported
-executable into the final image. `make benchmark` runs the five-million-item load, read, removal,
-and compaction workload.
+the no-op optimizer plugin in a Podman image. `make benchmark-image` runs redb's library tests and
+compiles `redb_benchmark` twice: baseline invokes the stage-1 compiler directly, while optimized
+invokes that same compiler with the custom pass pipeline loaded and scheduled. Cargo's event stream
+selects each resulting executable for the final runtime image. `make benchmark` runs both through
+the five-million-item load, read, removal, and compaction workload.
 
 The container base is selected by an immutable registry digest, and every apt installation resolves
 against a dated Debian snapshot. Both identities are centralized in `config/versions.env`, enforced
@@ -139,39 +141,63 @@ change, so baseline and experimental artifacts must be rebuilt from the same new
 
 Compiler and Cargo build directories are persistent caches, not provenance authorities. Mutable
 rustc and redb target caches are namespaced by an enforced ID derived from the base-image digest and
-Debian snapshot; that ID also participates in the compiler identity. The checksum-verified Cargo
-registry cache may be shared across environments. Compiler source and artifact identities
-participate in Cargo's fingerprint, while executable selection comes from the current Cargo event
-stream. The redb worktree must be clean and its dependency lockfile is tracked in this repository.
-Regression probes cover compiler-cache invalidation and stale artifact selection.
+Debian snapshot. After the toolchain stage is complete, it owns and emits one compiler-artifact
+manifest and ID covering the source build ID, rustc, rustc driver, dynamically loaded LLVM library,
+and complete sysroot. Cache selection and benchmark provenance consume this same precomputed ID
+rather than independently enumerating compiler inputs. Within the redb cache, baseline and optimized
+artifacts use directories selected from that core ID plus artifacts owned by each mode. A plugin-only
+change invalidates optimized artifacts but leaves baseline artifacts fresh. Identity-only compiler
+flags are deliberately avoided because they can change symbol names or binary layout and become an
+A/B confounder. The checksum-verified Cargo registry cache may be shared across environments.
+Executable selection comes from each current Cargo event stream. The redb worktree must be clean and
+its dependency lockfile is tracked in this repository. Regression probes cover variant isolation,
+compiler-cache invalidation, and stale artifact selection.
 
-This baseline establishes reproducible inputs and compiler plumbing, but it does not yet provide a
-statistically rigorous comparison harness. Before optimization results are claimed, the harness must
-capture machine characteristics, perform warmups and repeated randomized baseline/experimental runs,
-and report uncertainty rather than only a single elapsed time.
+Artifact identities follow one lifecycle rule: the stage that owns a bundle emits its identity only
+after the bundle is complete, and consumers reuse that identity without rebuilding a partial view.
+The toolchain stage owns compiler code-generation artifacts. The benchmark-builder stage owns the
+runtime experiment bundle, so it assembles both benchmarks, the monotonic clock helper, and the
+comparison runner before generating benchmark provenance. The final runtime stage copies this
+closed bundle and its manifest together.
+
+The runtime harness labels each variant's native benchmark output, records total wall time, reports
+binary hashes, effective CPU affinity, and basic machine characteristics, and alternates execution
+order across repeated rounds. Elapsed samples use `clock_gettime(CLOCK_MONOTONIC)` through a hashed
+repository-owned helper, and non-positive deltas fail the experiment. A caller can retain the raw
+tab-separated samples through a mounted result path. The runtime image also embeds and reports a
+manifest containing the shared compiler artifact ID and component hashes, plugin and wrapper hashes,
+pinned source and environment revisions, dependency-lock identity, both output hashes, and the
+comparison runner hash. The runner verifies itself and the measured artifacts before collecting a
+sample. A caller can therefore attribute a sample without retaining the discarded build stages. The
+default single round is only an integration check. Before optimization results are claimed,
+experiments must use repeated runs on a controlled idle host and report the sample distribution and
+uncertainty, not only the harness's mean wall-time ratio.
 
 ## Optimizer integration scaffold
 
-rustc's existing `-Zllvm-plugins` hook loads `libaco_keyhole_pass.so`, and `-Cpasses=aco-keyhole`
-appends its function pass to the per-module LLVM pipeline. The pass currently changes no IR and
-preserves all analyses. The container smoke test enables trace output to prove that the scheduled
-pass visits generated functions; normal builds do not trace.
+rustc's existing `-Zllvm-plugins` hook loads `libaco_optimizer.so`, and `-Cpasses=aco-passes`
+appends the aggregate ACO pipeline to the per-module LLVM pipeline. `addAcoPasses` is the explicit
+ordering point for accepted custom passes. Its current keyhole pass changes no IR and preserves all
+analyses. The container smoke test enables trace output to prove that the scheduled pass visits
+generated functions; normal builds do not trace.
 
 The plugin is compiled against the exact CI LLVM used by the stage-1 compiler, so no second LLVM or
 large `llvm-project` checkout is required. The built pass binary participates in the compiler
 identity used for Cargo cache invalidation, while its source remains attributable through the
 repository revision. Alive2 is independently pinned because proof semantics are an experiment input.
-Later work must add only solver-accepted rewrites to this insertion point and compare pinned
-baseline and experimental identities. Proof and benchmark artifacts must identify the exact
-compiler, pass set, redb revision, dependency graph, and measurement environment.
+Later work must add only solver-accepted rewrites to this insertion point. The benchmark baseline
+must continue to bypass the plugin entirely while the optimized variant schedules the accepted pass
+set. Proof and benchmark artifacts must identify the exact compiler, pass set, redb revision,
+dependency graph, and measurement environment.
 
 ## Milestones
 
-1. **Baseline scaffold (current):** pinned editable rustc, pinned redb and dependencies, a loadable
-   no-op optimizer insertion point, a fail-closed pinned Alive2 proof gate, persistent compilation
-   caches with explicit provenance, and a containerized benchmark.
-2. **Measurement harness:** pinned inputs, repeated A/B runs, machine metadata, and structured result
-   capture.
+1. **Baseline scaffold (complete):** pinned editable rustc, pinned redb and dependencies, a loadable
+   no-op optimizer insertion point, a fail-closed pinned Alive2 proof gate, and persistent
+   compilation caches with explicit provenance.
+2. **Measurement harness (scaffold complete):** paired pass-disabled/pass-enabled artifacts,
+   alternating repeated A/B runs, basic machine metadata, and structured raw wall-time capture;
+   distribution and uncertainty reporting remains experiment-level work.
 3. **Proof prototype (scaffold complete):** declarative candidates and a solver adapter for a narrow
    integer-only subset; candidate-to-pass generation or structural consistency remains.
 4. **Pass prototype:** replace the integrated no-op with one generated and tested solver-proven LLVM
