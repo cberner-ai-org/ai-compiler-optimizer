@@ -12,7 +12,7 @@ locked-deps = true
 print-step-timings = true
 
 [llvm]
-# The optimizer is not in scope yet, so use Rust's matching CI-built LLVM.
+# Build the external optimizer plugin against Rust's matching CI-built LLVM.
 download-ci-llvm = true
 assertions = false
 

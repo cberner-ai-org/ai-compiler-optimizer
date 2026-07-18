@@ -2,9 +2,10 @@
 
 ## Status
 
-This project is experimental. Its baseline builds an editable, pinned stage-1 Rust compiler and uses
-it to compile a pinned redb benchmark. It does not yet contain optimization passes, an LLM
-integration, or a solver integration.
+This project is experimental. Its scaffold builds an editable, pinned stage-1 Rust compiler, loads
+a no-op LLVM keyhole pass into that compiler, and uses the complete path to compile a pinned redb
+benchmark. The pass establishes optimizer plumbing but does not yet transform IR. The project does
+not yet contain an LLM integration or a solver integration.
 
 ## Objective
 
@@ -45,8 +46,9 @@ The system is expected to grow into the following components:
 - **Solver adapter:** translates a candidate into an equivalence query and returns a proof,
   counterexample, or rejection. The model must account for the LLVM semantics relevant to the
   candidate, including poison, undef, overflow flags, memory behavior, and undefined behavior.
-- **Pass workspace:** contains generated LLVM pass implementations and focused positive and negative
-  tests. Generated changes remain ordinary reviewable source code.
+- **Pass workspace:** `optimizer` currently contains the no-op LLVM 22 plugin insertion point. It
+  will contain generated pass implementations and focused positive and negative tests. Generated
+  changes remain ordinary reviewable source code.
 - **Compiler builder:** builds the pinned stage-1 rustc/LLVM toolchain and will include only accepted
   passes as optimizer work is added.
 - **Benchmark harness:** compiles a fixed redb revision with baseline and experimental compilers,
@@ -98,10 +100,11 @@ boundary.
 
 ## redb benchmark baseline
 
-The current workflow pins Rust and redb as submodules and builds an editable stage-1 compiler in a
-Podman image. `make benchmark-image` runs redb's library tests, compiles `redb_benchmark` with that
-compiler, and copies Cargo's reported executable into the final image. `make benchmark` runs the
-five-million-item load, read, removal, and compaction workload.
+The current workflow pins Rust and redb as submodules and builds an editable stage-1 compiler plus
+the no-op keyhole plugin in a Podman image. `make benchmark-image` runs redb's library tests,
+compiles `redb_benchmark` with the plugin-aware compiler wrapper, and copies Cargo's reported
+executable into the final image. `make benchmark` runs the five-million-item load, read, removal,
+and compaction workload.
 
 Compiler and Cargo build directories are persistent caches, not provenance authorities. Compiler
 source and artifact identities participate in Cargo's fingerprint, while executable selection comes
@@ -114,21 +117,30 @@ statistically rigorous comparison harness. Before optimization results are claim
 capture machine characteristics, perform warmups and repeated randomized baseline/experimental runs,
 and report uncertainty rather than only a single elapsed time.
 
-## Planned optimizer integration
+## Optimizer integration scaffold
 
-The stage-1 compiler currently contains no custom optimizer. A later milestone will add only accepted
-passes to its LLVM pipeline, then compile the same redb revision with pinned baseline and experimental
-compiler identities. Proof and benchmark artifacts must identify the exact compiler, pass set, redb
-revision, dependency graph, and measurement environment.
+rustc's existing `-Zllvm-plugins` hook loads `libaco_keyhole_pass.so`, and `-Cpasses=aco-keyhole`
+appends its function pass to the per-module LLVM pipeline. The pass currently changes no IR and
+preserves all analyses. The container smoke test enables trace output to prove that the scheduled
+pass visits generated functions; normal builds do not trace.
+
+The plugin is compiled against the exact CI LLVM used by the stage-1 compiler, so no second LLVM or
+large `llvm-project` checkout is required. The built pass binary participates in the compiler
+identity used for Cargo cache invalidation, while its source remains attributable through the
+repository revision. Later work must add only solver-accepted rewrites to this insertion point and
+compare pinned baseline and experimental identities. Proof and benchmark artifacts must identify
+the exact compiler, pass set, redb revision, dependency graph, and measurement environment.
 
 ## Milestones
 
-1. **Baseline scaffold (current):** pinned editable rustc, pinned redb and dependencies, persistent
-   compilation caches with explicit provenance, and a containerized benchmark.
+1. **Baseline scaffold (current):** pinned editable rustc, pinned redb and dependencies, a loadable
+   no-op optimizer insertion point, persistent compilation caches with explicit provenance, and a
+   containerized benchmark.
 2. **Measurement harness:** pinned inputs, repeated A/B runs, machine metadata, and structured result
    capture.
 3. **Proof prototype:** declarative candidates and a solver adapter for a narrow integer-only subset.
-4. **Pass prototype:** generate and test one solver-proven LLVM peephole pass independently of rustc.
+4. **Pass prototype:** replace the integrated no-op with one generated and tested solver-proven LLVM
+   peephole pass.
 5. **Optimizer integration:** build rustc with accepted passes and use it for the redb A/B benchmark.
 6. **Automated search:** let the LLM and coding agent propose, disprove or prove, implement, and
    benchmark candidates with auditable artifacts and human review gates.

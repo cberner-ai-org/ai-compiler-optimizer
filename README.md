@@ -6,10 +6,11 @@ This repository experiments with generating small LLVM optimizations, proving
 them equivalent with a solver, and measuring them against real Rust programs.
 The initial performance target is [redb](https://github.com/cberner/redb).
 
-The current baseline builds an editable, pinned Rust compiler and uses it to
-compile a pinned redb benchmark. It intentionally contains no custom optimizer
-yet. See the [design document](docs/design.md) for the planned architecture and
-safety model.
+The current scaffold builds an editable, pinned Rust compiler, attaches a
+loadable no-op LLVM keyhole pass, and uses that compiler path to compile a
+pinned redb benchmark. The pass changes no IR yet; it establishes the insertion
+point for later solver-proven rewrites. See the [design document](docs/design.md)
+for the planned architecture and safety model.
 
 The source inputs are Git submodules pinned to:
 
@@ -45,8 +46,9 @@ make test
 ```
 
 `make init` fetches the two top-level submodules and only Rust's nested
-`library/backtrace` submodule. It deliberately avoids the large LLVM checkout
-because the bootstrap configuration uses Rust's matching CI-built LLVM.
+`library/backtrace` submodule. It deliberately avoids the large LLVM checkout:
+the stage-1 compiler uses Rust's matching CI-built LLVM, and the keyhole plugin
+is compiled against the headers and flags in that same archive.
 
 The redb worktree must remain clean so the benchmark source exactly matches its
 declared revision. The Rust worktree intentionally remains editable for compiler
@@ -60,20 +62,25 @@ podman run --rm localhost/ai-compiler-optimizer-toolchain:rust-1.97.1
 ```
 
 The `toolchain` image stage builds `./x build --stage 1 library`, copies the
-stage-1 compiler and standard-library sysroot to `/opt/rust-custom`, and compiles
-and runs a smoke program. Its persistent build cache makes subsequent compiler
-edits incremental.
+stage-1 compiler and standard-library sysroot to `/opt/rust-custom`, builds
+`libaco_keyhole_pass.so` against rustc's exact LLVM, and compiles and runs a
+smoke program through the pass. Its persistent build cache makes subsequent
+compiler edits incremental; pass-only edits do not rebuild rustc.
 
 The custom sysroot does not build Cargo. Cargo 1.97.1 from the pinned official
-image acts only as the orchestrator, with `RUSTC` fixed to the custom compiler.
+image acts only as the orchestrator, with `RUSTC` fixed to
+`rustc-with-keyhole`. That wrapper invokes the custom compiler with
+`-Zllvm-plugins=/opt/rust-custom/lib/libaco_keyhole_pass.so` and
+`-Cpasses=aco-keyhole`.
 
-Each compiler build records an identity derived from the Rust source and
-bootstrap configuration. Before compiling redb, `with-custom-toolchain` combines
-that identity with the `rustc` and `librustc_driver` artifacts and adds it to
-Cargo's tracked compiler flags. This prevents the persistent target cache from
-reusing benchmark artifacts after compiler changes even though the pinned
+Each toolchain build records an identity derived from the Rust source,
+bootstrap configuration, and built optimizer plugin. Before compiling redb,
+`with-custom-toolchain` combines that identity with the `rustc`,
+`librustc_driver`, plugin, and wrapper artifacts and adds it to Cargo's tracked
+compiler flags. This prevents the persistent target cache from reusing
+benchmark artifacts after compiler or pass changes even though the pinned
 `rustc -vV` commit remains unchanged. An image-build regression independently
-checks rustc-only and driver-only mutations.
+checks rustc-only, driver-only, and plugin-only mutations.
 
 ## Build and run the redb benchmark
 
@@ -83,9 +90,10 @@ make benchmark
 ```
 
 The benchmark image build verifies the custom sysroot, runs redb's library
-tests, and compiles `redb_benchmark`. The target cache may contain outputs from
-several compiler identities, so installation uses the executable path emitted
-by the current Cargo invocation rather than directory timestamps.
+tests, and compiles `redb_benchmark` through the keyhole wrapper. The target
+cache may contain outputs from several compiler identities, so installation
+uses the executable path emitted by the current Cargo invocation rather than
+directory timestamps.
 
 The final image contains the custom toolchain and benchmark executable but none
 of their build trees. Pass Podman options through the runner when controlling
@@ -104,9 +112,11 @@ deciding whether the old cache should be retained.
 
 - `third_party/rust`: editable Rust compiler submodule
 - `third_party/redb`: pinned benchmark submodule
+- `optimizer`: LLVM 22 new-pass-manager plugin and its focused build helper
 - `config/rust-bootstrap.toml`: stage-1 compiler build configuration
 - `config/redb-Cargo.lock`: pinned benchmark dependency graph
 - `containers/Containerfile`: compiler, toolchain, and benchmark image stages
+- `scripts/rustc-with-keyhole.sh`: rustc wrapper that loads and schedules the pass
 - `scripts/check.sh`: revision and scaffolding consistency checks
 - `scripts/build-image.sh`: Podman image build entry point
 - `docs/design.md`: architecture, safety model, and project milestones
