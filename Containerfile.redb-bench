@@ -1,0 +1,11 @@
+FROM docker.io/library/rust:1.90.0-bookworm
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends clang cmake libclang-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY scripts/run-redb-benchmark.sh /usr/local/bin/run-redb-benchmark
+
+RUN chmod 0555 /usr/local/bin/run-redb-benchmark
+
+ENTRYPOINT ["/usr/local/bin/run-redb-benchmark"]
