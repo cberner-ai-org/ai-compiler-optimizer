@@ -1,0 +1,25 @@
+# Keep this configuration release-like for benchmark output while retaining
+# incremental rustc artifacts for subsequent compiler work.
+change-id = 154587
+
+[build]
+description = "ai-compiler-optimizer"
+submodules = false
+docs = false
+compiler-docs = false
+extended = false
+locked-deps = true
+print-step-timings = true
+
+[llvm]
+# The optimizer is not in scope yet, so use Rust's matching CI-built LLVM.
+download-ci-llvm = true
+assertions = false
+
+[rust]
+channel = "dev"
+download-rustc = false
+optimize = true
+debug = false
+debug-assertions = false
+incremental = true

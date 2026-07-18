@@ -2,8 +2,9 @@
 
 ## Status
 
-This project is experimental. Its first milestone is a reproducible baseline benchmark; it does not
-yet contain a custom compiler, optimization passes, an LLM integration, or a solver integration.
+This project is experimental. Its baseline builds an editable, pinned stage-1 Rust compiler and uses
+it to compile a pinned redb benchmark. It does not yet contain optimization passes, an LLM
+integration, or a solver integration.
 
 ## Objective
 
@@ -46,8 +47,8 @@ The system is expected to grow into the following components:
   candidate, including poison, undef, overflow flags, memory behavior, and undefined behavior.
 - **Pass workspace:** contains generated LLVM pass implementations and focused positive and negative
   tests. Generated changes remain ordinary reviewable source code.
-- **Compiler builder:** eventually builds a custom rustc/LLVM toolchain that loads or includes only
-  accepted passes.
+- **Compiler builder:** builds the pinned stage-1 rustc/LLVM toolchain and will include only accepted
+  passes as optimizer work is added.
 - **Benchmark harness:** compiles a fixed redb revision with baseline and experimental compilers,
   executes repeated benchmark samples in controlled environments, and compares their distributions.
 - **Artifact store:** records enough provenance to reproduce both a proof and a performance result.
@@ -95,41 +96,39 @@ tests, the relevant Rust test suites, redb tests, and end-to-end benchmarks. The
 against pass plumbing mistakes, mismatched tool versions, and errors outside the solver's proof
 boundary.
 
-## redb benchmark scaffold
+## redb benchmark baseline
 
-The current `just bench_redb` target builds a container based on the official Rust 1.90 Bookworm
-image. At runtime the container creates a fresh redb checkout, resolves `REDB_REVISION` (defaulting
-to `master`), prints the tested commit, and runs:
+The current workflow pins Rust and redb as submodules and builds an editable stage-1 compiler in a
+Podman image. `make benchmark-image` runs redb's library tests, compiles `redb_benchmark` with that
+compiler, and copies Cargo's reported executable into the final image. `make benchmark` runs the
+five-million-item load, read, removal, and compaction workload.
 
-```console
-cargo bench -p redb-bench --bench redb_benchmark
-```
+Compiler and Cargo build directories are persistent caches, not provenance authorities. Compiler
+source and artifact identities participate in Cargo's fingerprint, while executable selection comes
+from the current Cargo event stream. The redb worktree must be clean and its dependency lockfile is
+tracked in this repository. Regression probes cover compiler-cache invalidation and stale artifact
+selection.
 
-The named `ai-compiler-optimizer-redb-cache` Podman volume stores Cargo's registry, Git database, and
-target directory across invocations. The source checkout itself is ephemeral, preventing stale or
-modified source from contaminating a run. CI invokes the same `just` target used locally.
-
-This first scaffold establishes that upstream redb builds and runs in the benchmark environment. It
-does not attempt to produce statistically rigorous comparisons. Before optimization results are
-claimed, the harness must pin the redb and compiler commits, isolate benchmark data from build caches,
+This baseline establishes reproducible inputs and compiler plumbing, but it does not yet provide a
+statistically rigorous comparison harness. Before optimization results are claimed, the harness must
 capture machine characteristics, perform warmups and repeated randomized baseline/experimental runs,
 and report uncertainty rather than only a single elapsed time.
 
-## Planned custom compiler integration
+## Planned optimizer integration
 
-A later milestone will build a rustc binary whose LLVM pipeline includes accepted custom passes. The
-container will then compile the same redb revision twice: once with a pinned baseline rustc and once
-with the experimental rustc. That work is intentionally deferred. The current benchmark uses the
-unmodified Rust compiler supplied by the container image.
+The stage-1 compiler currently contains no custom optimizer. A later milestone will add only accepted
+passes to its LLVM pipeline, then compile the same redb revision with pinned baseline and experimental
+compiler identities. Proof and benchmark artifacts must identify the exact compiler, pass set, redb
+revision, dependency graph, and measurement environment.
 
 ## Milestones
 
-1. **Baseline scaffold (current):** containerized redb checkout, persistent compilation cache, one
-   `just` command, and CI execution.
+1. **Baseline scaffold (current):** pinned editable rustc, pinned redb and dependencies, persistent
+   compilation caches with explicit provenance, and a containerized benchmark.
 2. **Measurement harness:** pinned inputs, repeated A/B runs, machine metadata, and structured result
    capture.
 3. **Proof prototype:** declarative candidates and a solver adapter for a narrow integer-only subset.
 4. **Pass prototype:** generate and test one solver-proven LLVM peephole pass independently of rustc.
-5. **Custom rustc:** build rustc with accepted passes and use it for the redb A/B benchmark.
+5. **Optimizer integration:** build rustc with accepted passes and use it for the redb A/B benchmark.
 6. **Automated search:** let the LLM and coding agent propose, disprove or prove, implement, and
    benchmark candidates with auditable artifacts and human review gates.

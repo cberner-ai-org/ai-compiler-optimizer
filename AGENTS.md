@@ -5,14 +5,19 @@ Read `docs/design.md` before making architectural changes.
 
 ## Setup
 
-`just` and rootless Podman are required. The benchmark image contains the Rust toolchain and Linux
-build dependencies. Cargo downloads and build artifacts are stored in the
-`ai-compiler-optimizer-redb-cache` Podman volume.
+Git, GNU Make, ripgrep, and rootless Podman are required. Run `make init` to fetch the pinned Rust
+and redb submodules, then `make test` before building images. `just` is an optional compatibility
+front end for the same Make targets.
+
+The compiler, Cargo registry, and benchmark target directories use named Podman build caches. The
+redb submodule is an immutable benchmark input and must remain clean; the Rust submodule is editable
+compiler source.
 
 ## Before completing a task
 
-Run `just bench_redb` after changing the benchmark scaffold and confirm that it succeeds. Run the
-most relevant focused checks for future compiler or solver code as those components are added.
+Always run `make test`. After compiler or container changes, build the affected image and confirm its
+embedded smoke and regression checks pass. Run `make benchmark` after changes that can affect the
+compiled benchmark or measurement workflow.
 
 Do not bypass failed checks. Document any check that cannot run and the reason.
 

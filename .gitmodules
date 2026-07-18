@@ -1,0 +1,8 @@
+[submodule "third_party/rust"]
+	path = third_party/rust
+	url = https://github.com/rust-lang/rust.git
+	shallow = true
+[submodule "third_party/redb"]
+	path = third_party/redb
+	url = https://github.com/cberner/redb.git
+	shallow = true

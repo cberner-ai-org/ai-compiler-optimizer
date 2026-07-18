@@ -1,35 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly REDB_REPOSITORY="${REDB_REPOSITORY:-https://github.com/cberner/redb.git}"
-readonly REDB_REVISION="${REDB_REVISION:-master}"
-readonly CHECKOUT=/work/redb
+repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=../config/versions.env
+source "${repo_root}/config/versions.env"
 
-mkdir -p "$CHECKOUT" /cache/cargo /cache/target
-
-git -C "$CHECKOUT" init --quiet
-git -C "$CHECKOUT" remote add origin "$REDB_REPOSITORY"
-
-if [[ "$REDB_REVISION" =~ ^[0-9a-fA-F]{40}$ ]]; then
-    # Some servers reject fetches by an unadvertised object ID.
-    git -C "$CHECKOUT" fetch --quiet origin \
-        "+refs/heads/*:refs/remotes/origin/*" \
-        "+refs/tags/*:refs/tags/*"
-    if ! git -C "$CHECKOUT" cat-file -e "${REDB_REVISION}^{commit}"; then
-        echo "Commit is not reachable from an advertised branch or tag: $REDB_REVISION" >&2
-        exit 1
-    fi
-    git -C "$CHECKOUT" checkout --quiet --detach "$REDB_REVISION"
-else
-    git -C "$CHECKOUT" fetch --quiet --depth=1 origin "$REDB_REVISION"
-    git -C "$CHECKOUT" checkout --quiet --detach FETCH_HEAD
-fi
-
-echo "Benchmarking redb commit $(git -C "$CHECKOUT" rev-parse HEAD)"
-
-cd "$CHECKOUT"
-export CARGO_HOME=/cache/cargo
-export CARGO_TARGET_DIR=/cache/target
-export RUSTUP_TOOLCHAIN=1.90.0
-
-cargo bench -p redb-bench --bench redb_benchmark
+# Additional arguments are Podman run options, for example:
+#   ./scripts/run-redb-benchmark.sh --cpuset-cpus=2-5
+exec podman run --rm "$@" "${REDB_BENCHMARK_IMAGE}"
