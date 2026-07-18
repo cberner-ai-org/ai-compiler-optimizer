@@ -3,21 +3,26 @@ set -euo pipefail
 
 toolchain_root="${CUSTOM_TOOLCHAIN_ROOT:-/opt/rust-custom}"
 probe_manifest="${COMPILER_CACHE_PROBE_MANIFEST:-/opt/compiler-cache-probe/Cargo.toml}"
-wrapper="${CUSTOM_TOOLCHAIN_WRAPPER:-/usr/local/bin/with-custom-toolchain}"
+variant_wrapper="${COMPILER_VARIANT_WRAPPER:-/usr/local/bin/with-compiler-variant}"
+artifact_manifest_writer="${COMPILER_ARTIFACT_WRITER:-/usr/local/bin/write-compiler-artifact-manifest}"
 probe_root="$(mktemp -d)"
 trap 'rm -rf -- "${probe_root}"' EXIT
 
 shopt -s nullglob
 driver_paths=("${toolchain_root}"/lib/librustc_driver-*.so)
 (( ${#driver_paths[@]} > 0 ))
-plugin_path="${toolchain_root}/lib/libaco_keyhole_pass.so"
+plugin_path="${toolchain_root}/lib/libaco_optimizer.so"
+optimizer_wrapper="${CUSTOM_RUSTC_WRAPPER:-/usr/local/bin/rustc-with-aco-passes}"
 [[ -s "${plugin_path}" ]]
+[[ -x "${optimizer_wrapper}" ]]
 
 # The release toolchain is immutable. Exercise artifact mutation against a
-# disposable fingerprint fixture while Cargo continues to invoke the shipped
-# compiler through RUSTC.
+# disposable identity fixture while compilations use the complete shipped
+# sysroot and optimizer plugin through ACO_TOOLCHAIN_ROOT.
 compiler_fixture="${probe_root}/compiler-fixture"
-mkdir -p "${compiler_fixture}/bin" "${compiler_fixture}/lib"
+mkdir -p \
+    "${compiler_fixture}/bin" \
+    "${compiler_fixture}/lib/rustlib/fixture/lib"
 cp --archive --reflink=auto \
     "${toolchain_root}/bin/rustc" \
     "${compiler_fixture}/bin/rustc"
@@ -26,62 +31,49 @@ cp --archive --reflink=auto \
     "${compiler_fixture}/lib/"
 cp --archive --reflink=auto \
     "${plugin_path}" \
-    "${compiler_fixture}/lib/libaco_keyhole_pass.so"
+    "${compiler_fixture}/lib/libaco_optimizer.so"
 cp --archive \
     "${toolchain_root}/.compiler-build-id" \
     "${compiler_fixture}/.compiler-build-id"
-# CUSTOM_TOOLCHAIN_ROOT selects the disposable fingerprint inputs below. Keep
-# actual compilations on the complete shipped sysroot.
-export ACO_TOOLCHAIN_ROOT="${ACO_TOOLCHAIN_ROOT:-${toolchain_root}}"
-export CUSTOM_TOOLCHAIN_ROOT="${compiler_fixture}"
+cp --archive \
+    "${optimizer_wrapper}" \
+    "${compiler_fixture}/rustc-with-aco-passes"
+printf 'LLVM identity fixture\n' \
+    > "${compiler_fixture}/lib/libLLVM-fixture.so"
+printf 'sysroot identity fixture\n' \
+    > "${compiler_fixture}/lib/rustlib/fixture/lib/libstd-fixture.rlib"
 
-rustflags_case=""
-cargo_target_dir=""
+export ACO_TOOLCHAIN_ROOT="${toolchain_root}"
+export CUSTOM_TOOLCHAIN_ROOT="${compiler_fixture}"
+export CUSTOM_RUSTC_WRAPPER="${compiler_fixture}/rustc-with-aco-passes"
+export CARGO_TARGET_DIR="${probe_root}/target"
+
+refresh_compiler_artifact_manifest() {
+    "${artifact_manifest_writer}"
+}
+
+refresh_compiler_artifact_manifest
 
 run_probe() {
-    local log_path="$1"
-    local -a cargo_environment=(
-        env
-        -u CARGO_ENCODED_RUSTFLAGS
-        -u RUSTFLAGS
-        "CARGO_TARGET_DIR=${cargo_target_dir}"
-    )
+    local variant="$1"
+    local log_path="$2"
 
-    # Cargo chooses the encoded channel by variable presence, not content.
-    # Isolate each state so an invoking environment cannot mask a regression.
-    case "${rustflags_case}" in
-        unset)
-            ;;
-        encoded-empty)
-            cargo_environment+=(CARGO_ENCODED_RUSTFLAGS=)
-            ;;
-        encoded-populated)
-            cargo_environment+=(CARGO_ENCODED_RUSTFLAGS=-Cdebuginfo=0)
-            ;;
-        rustflags-populated)
-            cargo_environment+=(RUSTFLAGS=-Cdebuginfo=0)
-            ;;
-        *)
-            echo "compiler cache regression: unknown rustflags case: ${rustflags_case}" >&2
-            exit 1
-            ;;
-    esac
-
-    "${cargo_environment[@]}" "${wrapper}" cargo build \
+    "${variant_wrapper}" "${variant}" cargo build \
         --locked \
         --manifest-path "${probe_manifest}" \
         --verbose \
-        >"${log_path}" 2>&1
+        > "${log_path}" 2>&1
 }
 
 expect_probe_state() {
-    local label="$1"
-    local expected="$2"
-    local log_path="${probe_root}/${rustflags_case}-${label}.log"
+    local variant="$1"
+    local label="$2"
+    local expected="$3"
+    local log_path="${probe_root}/${variant}-${label}.log"
 
-    if ! run_probe "${log_path}"; then
+    if ! run_probe "${variant}" "${log_path}"; then
         echo \
-            "compiler cache regression: Cargo failed for ${rustflags_case} after ${label}" \
+            "compiler cache regression: ${variant} Cargo failed after ${label}" \
             >&2
         sed -n '1,120p' "${log_path}" >&2
         exit 1
@@ -90,37 +82,54 @@ expect_probe_state() {
         "${expected} compiler-cache-probe" \
         "${log_path}"; then
         echo \
-            "compiler cache regression: expected ${expected} for ${rustflags_case} after ${label}" \
+            "compiler cache regression: expected ${expected} for ${variant} after ${label}" \
             >&2
         sed -n '1,120p' "${log_path}" >&2
         exit 1
     fi
 }
 
-exercise_rustflags_case() {
-    rustflags_case="$1"
-    cargo_target_dir="${probe_root}/target-${rustflags_case}"
+expect_both_variants() {
+    local label="$1"
+    local expected="$2"
 
-    expect_probe_state first Compiling
-    expect_probe_state unchanged Fresh
-
-    touch "${compiler_fixture}/bin/rustc"
-    expect_probe_state rustc-only-change Compiling
-    expect_probe_state rustc-unchanged Fresh
+    expect_probe_state baseline "${label}" "${expected}"
+    expect_probe_state optimized "${label}" "${expected}"
 }
 
-exercise_rustflags_case unset
-exercise_rustflags_case encoded-empty
-exercise_rustflags_case encoded-populated
-exercise_rustflags_case rustflags-populated
+expect_both_variants first Compiling
+expect_both_variants unchanged Fresh
+
+touch "${compiler_fixture}/bin/rustc"
+refresh_compiler_artifact_manifest
+expect_both_variants rustc-only-change Compiling
+expect_both_variants rustc-unchanged Fresh
 
 fixture_driver_paths=("${compiler_fixture}"/lib/librustc_driver-*.so)
 touch "${fixture_driver_paths[@]}"
-expect_probe_state driver-only-change Compiling
-expect_probe_state driver-unchanged Fresh
+refresh_compiler_artifact_manifest
+expect_both_variants driver-only-change Compiling
+expect_both_variants driver-unchanged Fresh
 
-touch "${compiler_fixture}/lib/libaco_keyhole_pass.so"
-expect_probe_state plugin-only-change Compiling
-expect_probe_state plugin-unchanged Fresh
+printf 'LLVM mutation\n' >> "${compiler_fixture}/lib/libLLVM-fixture.so"
+refresh_compiler_artifact_manifest
+expect_both_variants llvm-only-change Compiling
+expect_both_variants llvm-unchanged Fresh
+
+printf 'sysroot mutation\n' \
+    >> "${compiler_fixture}/lib/rustlib/fixture/lib/libstd-fixture.rlib"
+refresh_compiler_artifact_manifest
+expect_both_variants sysroot-only-change Compiling
+expect_both_variants sysroot-unchanged Fresh
+
+touch "${compiler_fixture}/lib/libaco_optimizer.so"
+expect_probe_state baseline plugin-only-change Fresh
+expect_probe_state optimized plugin-only-change Compiling
+expect_probe_state optimized plugin-unchanged Fresh
+
+touch "${compiler_fixture}/rustc-with-aco-passes"
+expect_probe_state baseline wrapper-only-change Fresh
+expect_probe_state optimized wrapper-only-change Compiling
+expect_probe_state optimized wrapper-unchanged Fresh
 
 echo "compiler cache regression passed"

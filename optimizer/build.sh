@@ -6,7 +6,7 @@ set -euo pipefail
 
 llvm_version="$("${LLVM_CONFIG}" --version)"
 [[ "${llvm_version}" == 22.* ]] || {
-    echo "keyhole plugin requires rustc's LLVM 22; found ${llvm_version}" >&2
+    echo "optimizer plugin requires rustc's LLVM 22; found ${llvm_version}" >&2
     exit 1
 }
 
@@ -22,5 +22,5 @@ source_dir="$(cd -- "${source_parent}" && pwd)"
     -fPIC \
     -O3 \
     -shared \
-    "${source_dir}/KeyholePass.cpp" \
+    "${source_dir}/OptimizerPlugin.cpp" \
     -o "${OUTPUT}"

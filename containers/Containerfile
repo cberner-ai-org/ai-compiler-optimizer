@@ -1,6 +1,8 @@
 ARG RUST_IMAGE=docker.io/library/rust:1.97.1-bookworm@sha256:77fac8b98f9f46062bb680b6d25d5bcaabfc400143952ebc572e924bcbedc3fa
 ARG RUST_VERSION=1.97.1
 ARG RUST_COMMIT=8bab26f4f68e0e26f0bb7960be334d5b520ea452
+ARG REDB_VERSION=4.1.0
+ARG REDB_COMMIT=6ed1f981ba4deab0b2adbdd7bccb46ec409b2191
 ARG ALIVE2_COMMIT=1d1bc4fe3135492a8c1166838c776530de479420
 ARG DEBIAN_SNAPSHOT=20260713T000000Z
 ARG BUILD_ENVIRONMENT_ID=857daf7a274f92fd8270b010e8856b4d1ea32c2e0fd3e1d9c012a9f3d623dab1
@@ -125,16 +127,12 @@ RUN --mount=type=cache,id=ai-compiler-optimizer-rust-${BUILD_ENVIRONMENT_ID},tar
     mkdir -p /opt/rust-custom; \
     cp -a "build/${build_host}/stage1/." /opt/rust-custom/; \
     LLVM_CONFIG="build/${build_host}/ci-llvm/bin/llvm-config" \
-        OUTPUT=/tmp/libaco_keyhole_pass.so \
+        OUTPUT=/tmp/libaco_optimizer.so \
         /usr/src/optimizer/build.sh; \
     install --mode 0755 \
-        /tmp/libaco_keyhole_pass.so \
-        /opt/rust-custom/lib/libaco_keyhole_pass.so; \
-    compiler_build_id="$({ \
-        printf 'rustc:%s\n' "${rustc_source_id}"; \
-        sha256sum /opt/rust-custom/lib/libaco_keyhole_pass.so; \
-    } | sha256sum | cut -d ' ' -f 1)"; \
-    printf '%s\n' "${compiler_build_id}" > /opt/rust-custom/.compiler-build-id
+        /tmp/libaco_optimizer.so \
+        /opt/rust-custom/lib/libaco_optimizer.so; \
+    printf '%s\n' "${rustc_source_id}" > /opt/rust-custom/.compiler-build-id
 
 FROM pinned-bookworm AS toolchain
 
@@ -145,48 +143,66 @@ ARG DEBIAN_SNAPSHOT
 ARG BUILD_ENVIRONMENT_ID
 
 LABEL org.opencontainers.image.title="AI compiler optimizer custom Rust toolchain" \
-      org.opencontainers.image.description="Stage-1 Rust 1.97.1 compiler with the ACO no-op keyhole pass" \
+      org.opencontainers.image.description="Stage-1 Rust 1.97.1 compiler with optional ACO optimization passes" \
       org.opencontainers.image.base.name="${RUST_IMAGE}" \
       org.cberner-ai.ai-compiler-optimizer.debian-snapshot="${DEBIAN_SNAPSHOT}" \
       org.cberner-ai.ai-compiler-optimizer.build-environment-id="${BUILD_ENVIRONMENT_ID}"
 
 COPY --from=rustc-builder /opt/rust-custom/ /opt/rust-custom/
-COPY scripts/with-custom-toolchain.sh /usr/local/bin/with-custom-toolchain
-COPY scripts/rustc-with-keyhole.sh /usr/local/bin/rustc-with-keyhole
+COPY scripts/with-compiler-variant.sh /usr/local/bin/with-compiler-variant
+COPY scripts/rustc-with-aco-passes.sh /usr/local/bin/rustc-with-aco-passes
+COPY scripts/write-compiler-artifact-manifest.sh /usr/local/bin/write-compiler-artifact-manifest
 COPY tests/compiler-cache-regression.sh /usr/local/bin/compiler-cache-regression
 COPY tests/compiler-cache-probe/ /opt/compiler-cache-probe/
 COPY tests/toolchain_smoke.rs /tmp/toolchain_smoke.rs
 
 ENV PATH="/opt/rust-custom/bin:/usr/local/cargo/bin:${PATH}" \
-    RUSTC=/usr/local/bin/rustc-with-keyhole \
     RUSTUP_TOOLCHAIN=${RUST_VERSION}
 
 RUN set -eux; \
     test -s /opt/rust-custom/.compiler-build-id; \
-    test -s /opt/rust-custom/lib/libaco_keyhole_pass.so; \
-    test "$("${RUSTC}" --print sysroot)" = "/opt/rust-custom"; \
-    "${RUSTC}" --version | grep --fixed-strings "ai-compiler-optimizer"; \
-    "${RUSTC}" --version --verbose; \
-    "${RUSTC}" --version --verbose | grep --fixed-strings "commit-hash: ${RUST_COMMIT}"; \
-    ACO_KEYHOLE_TRACE=1 "${RUSTC}" \
+    test -s /opt/rust-custom/lib/libaco_optimizer.so; \
+    write-compiler-artifact-manifest; \
+    test -s /opt/rust-custom/.compiler-artifacts.tsv; \
+    test -s /opt/rust-custom/.compiler-artifact-id; \
+    test "$(/opt/rust-custom/bin/rustc --print sysroot)" = "/opt/rust-custom"; \
+    /opt/rust-custom/bin/rustc --version | grep --fixed-strings "ai-compiler-optimizer"; \
+    /opt/rust-custom/bin/rustc --version --verbose; \
+    /opt/rust-custom/bin/rustc --version --verbose | grep --fixed-strings "commit-hash: ${RUST_COMMIT}"; \
+    /opt/rust-custom/bin/rustc \
         --edition 2024 \
         -O \
         /tmp/toolchain_smoke.rs \
-        -o /tmp/toolchain-smoke \
-        2> /tmp/aco-keyhole-trace; \
-    grep --fixed-strings "aco-keyhole: ran on" /tmp/aco-keyhole-trace; \
-    /tmp/toolchain-smoke; \
-    rm /tmp/aco-keyhole-trace /tmp/toolchain-smoke /tmp/toolchain_smoke.rs
+        -o /tmp/toolchain-smoke-baseline; \
+    /tmp/toolchain-smoke-baseline; \
+    ACO_OPTIMIZER_TRACE=1 /usr/local/bin/rustc-with-aco-passes \
+        --edition 2024 \
+        -O \
+        /tmp/toolchain_smoke.rs \
+        -o /tmp/toolchain-smoke-optimized \
+        2> /tmp/aco-optimizer-trace; \
+    grep --fixed-strings "aco-keyhole: ran on" /tmp/aco-optimizer-trace; \
+    /tmp/toolchain-smoke-optimized; \
+    rm \
+        /tmp/aco-optimizer-trace \
+        /tmp/toolchain-smoke-baseline \
+        /tmp/toolchain-smoke-optimized \
+        /tmp/toolchain_smoke.rs
 
-# Cargo must remain fresh for unchanged inputs, but touching the compiler,
-# driver, or plugin must alter the Cargo fingerprint.
+# Cargo must remain fresh for unchanged inputs, while relevant compiler,
+# driver, wrapper, or plugin changes must select a new variant target.
 RUN compiler-cache-regression
 
-CMD ["/usr/local/bin/rustc-with-keyhole", "--version", "--verbose"]
+CMD ["/usr/local/bin/rustc-with-aco-passes", "--version", "--verbose"]
 
 FROM toolchain AS redb-builder
 
+ARG RUST_IMAGE
 ARG RUST_VERSION
+ARG RUST_COMMIT
+ARG REDB_VERSION
+ARG REDB_COMMIT
+ARG DEBIAN_SNAPSHOT
 ARG BUILD_ENVIRONMENT_ID
 
 RUN apt-get -o Acquire::Check-Valid-Until=false update \
@@ -200,33 +216,77 @@ COPY third_party/redb/ ./
 COPY config/redb-Cargo.lock ./Cargo.lock
 COPY scripts/select-cargo-executable.sh /usr/local/bin/select-cargo-executable
 COPY scripts/build-redb-benchmark.sh /usr/local/bin/build-redb-benchmark
+COPY scripts/write-benchmark-provenance.sh /usr/local/bin/write-benchmark-provenance
+COPY scripts/compare-redb-benchmarks.sh /usr/local/bin/compare-redb-benchmarks
+COPY tools/monotonic-clock.c /tmp/monotonic-clock.c
 
-# Compile and test with the custom rustc. Cargo comes from the pinned official
-# image and is only the build orchestrator. The wrapper binds Cargo's artifact
-# fingerprint to the copied compiler before each invocation.
+# Compile and test both variants with the same custom rustc. Cargo comes from
+# the pinned official image and is only the build orchestrator. The variant
+# wrapper isolates target artifacts by compiler and pass-plugin identity.
 RUN --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=ai-compiler-optimizer-redb-target-${BUILD_ENVIRONMENT_ID},target=/usr/src/redb/target \
     set -eux; \
-    test "$("${RUSTC}" --print sysroot)" = "/opt/rust-custom"; \
+    test "$(/opt/rust-custom/bin/rustc --print sysroot)" = "/opt/rust-custom"; \
     cargo --version | grep --fixed-strings "cargo ${RUST_VERSION}"; \
-    with-custom-toolchain cargo test --locked --package redb@4.1.0 --lib; \
-    build-redb-benchmark
+    cc \
+        -std=c11 \
+        -O2 \
+        -Wall \
+        -Wextra \
+        -Werror \
+        /tmp/monotonic-clock.c \
+        -o /usr/local/bin/aco-monotonic-clock; \
+    with-compiler-variant baseline \
+        cargo test --locked --package redb@4.1.0 --lib; \
+    with-compiler-variant optimized \
+        cargo test --locked --package redb@4.1.0 --lib; \
+    build-redb-benchmark \
+        baseline \
+        /usr/local/bin/redb-benchmark-baseline; \
+    build-redb-benchmark \
+        optimized \
+        /usr/local/bin/redb-benchmark-optimized; \
+    write-benchmark-provenance \
+        /usr/local/share/ai-compiler-optimizer/benchmark-provenance.tsv
 
-FROM toolchain AS redb-benchmark
+FROM pinned-bookworm AS redb-benchmark
 
 ARG RUST_IMAGE
+ARG RUST_COMMIT
+ARG REDB_COMMIT
 ARG DEBIAN_SNAPSHOT
 ARG BUILD_ENVIRONMENT_ID
 
-LABEL org.opencontainers.image.title="redb benchmark with custom Rust compiler" \
-      org.opencontainers.image.description="redb 4.1.0 benchmark built by Rust 1.97.1 with the ACO no-op keyhole pass" \
+LABEL org.opencontainers.image.title="redb A/B compiler benchmark" \
+      org.opencontainers.image.description="Paired redb 4.1.0 benchmarks built by Rust 1.97.1 without and with ACO optimization passes" \
+      org.opencontainers.image.source="https://github.com/cberner-ai-org/ai-compiler-optimizer" \
       org.opencontainers.image.base.name="${RUST_IMAGE}" \
+      org.cberner-ai.ai-compiler-optimizer.rust-commit="${RUST_COMMIT}" \
+      org.cberner-ai.ai-compiler-optimizer.redb-commit="${REDB_COMMIT}" \
       org.cberner-ai.ai-compiler-optimizer.debian-snapshot="${DEBIAN_SNAPSHOT}" \
       org.cberner-ai.ai-compiler-optimizer.build-environment-id="${BUILD_ENVIRONMENT_ID}"
 
-COPY --from=redb-builder /usr/local/bin/redb-benchmark /usr/local/bin/redb-benchmark
+COPY --from=redb-builder \
+    /usr/local/bin/redb-benchmark-baseline \
+    /usr/local/bin/redb-benchmark-baseline
+COPY --from=redb-builder \
+    /usr/local/bin/redb-benchmark-optimized \
+    /usr/local/bin/redb-benchmark-optimized
+COPY --from=redb-builder \
+    /usr/local/bin/aco-monotonic-clock \
+    /usr/local/bin/aco-monotonic-clock
+COPY --from=redb-builder \
+    /usr/local/share/ai-compiler-optimizer/benchmark-provenance.tsv \
+    /usr/local/share/ai-compiler-optimizer/benchmark-provenance.tsv
+COPY --from=redb-builder \
+    /usr/local/bin/compare-redb-benchmarks \
+    /usr/local/bin/compare-redb-benchmarks
 
 WORKDIR /benchmark
-RUN ldd /usr/local/bin/redb-benchmark
+RUN set -eux; \
+    test -s /usr/local/share/ai-compiler-optimizer/benchmark-provenance.tsv; \
+    /usr/local/bin/aco-monotonic-clock | grep --extended-regexp '^[0-9]+$'; \
+    ldd /usr/local/bin/redb-benchmark-baseline; \
+    ldd /usr/local/bin/redb-benchmark-optimized
 
-CMD ["/usr/local/bin/redb-benchmark"]
+CMD ["/usr/local/bin/compare-redb-benchmarks"]
