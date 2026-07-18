@@ -111,11 +111,13 @@ against a dated Debian snapshot. Both identities are centralized in `config/vers
 by scaffold checks, and copied into the resulting image labels. Changing either is a benchmark-input
 change, so baseline and experimental artifacts must be rebuilt from the same new environment.
 
-Compiler and Cargo build directories are persistent caches, not provenance authorities. Compiler
-source and artifact identities participate in Cargo's fingerprint, while executable selection comes
-from the current Cargo event stream. The redb worktree must be clean and its dependency lockfile is
-tracked in this repository. Regression probes cover compiler-cache invalidation and stale artifact
-selection.
+Compiler and Cargo build directories are persistent caches, not provenance authorities. Mutable
+rustc and redb target caches are namespaced by an enforced ID derived from the base-image digest and
+Debian snapshot; that ID also participates in the compiler identity. The checksum-verified Cargo
+registry cache may be shared across environments. Compiler source and artifact identities
+participate in Cargo's fingerprint, while executable selection comes from the current Cargo event
+stream. The redb worktree must be clean and its dependency lockfile is tracked in this repository.
+Regression probes cover compiler-cache invalidation and stale artifact selection.
 
 This baseline establishes reproducible inputs and compiler plumbing, but it does not yet provide a
 statistically rigorous comparison harness. Before optimization results are claimed, the harness must
