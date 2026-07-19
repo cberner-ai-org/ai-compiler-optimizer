@@ -18,10 +18,18 @@ if grep --quiet --extended-regexp \
     fail "baseline unexpectedly scheduled the ACO pipeline"
 fi
 
-rewrite_count="$(grep --count --fixed-strings \
-    'aco-three-way-compare: transformed ' \
-    "${optimized_trace}")" \
-    || fail "optimized build produced no transforming trace"
+rewrite_count="$(awk '
+    /aco-three-way-compare: transformed [1-9][0-9]* switch/ {
+        rewrites++
+        next
+    }
+    /aco-keyhole: transformed [1-9][0-9]* slice compare/ ||
+    /aco-keyhole: transformed [0-9]+ slice compare\(s\), [1-9][0-9]* generic memcmp/ ||
+    /aco-keyhole: transformed [0-9]+ slice compare\(s\), [0-9]+ generic memcmp call\(s\), and [1-9][0-9]* ordered midpoint/ {
+        rewrites++
+    }
+    END { print rewrites + 0 }
+' "${optimized_trace}")"
 (( rewrite_count >= 1 )) || fail "optimized transformation count is not positive"
 
 printf 'redb optimizer trace boundary: baseline excluded; optimized transforming traces: %s\n' \

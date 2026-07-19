@@ -12,6 +12,7 @@ runs="${ACO_BENCHMARK_RUNS:-1}"
 
 baseline_binary="${ACO_BASELINE_BENCHMARK:-/usr/local/bin/redb-benchmark-baseline}"
 optimized_binary="${ACO_OPTIMIZED_BENCHMARK:-/usr/local/bin/redb-benchmark-optimized}"
+candidate_label="${ACO_BENCHMARK_CANDIDATE_LABEL:-optimized}"
 provenance_file="${ACO_BENCHMARK_PROVENANCE:-/usr/local/share/ai-compiler-optimizer/benchmark-provenance.tsv}"
 [[ -x "${baseline_binary}" ]] || fail "missing baseline executable: ${baseline_binary}"
 [[ -x "${optimized_binary}" ]] || fail "missing optimized executable: ${optimized_binary}"
@@ -149,11 +150,30 @@ else
     results_file="$(mktemp)"
     temporary_results=true
 fi
-trap 'if [[ "${temporary_results}" == true ]]; then rm -f -- "${results_file}"; fi' EXIT
+temporary_phase_results=false
+if [[ -n "${ACO_BENCHMARK_PHASE_RESULTS:-}" ]]; then
+    phase_results_file="${ACO_BENCHMARK_PHASE_RESULTS}"
+else
+    phase_results_file="$(mktemp)"
+    temporary_phase_results=true
+fi
+cleanup() {
+    if [[ "${temporary_results}" == true ]]; then
+        rm -f -- "${results_file}"
+    fi
+    if [[ "${temporary_phase_results}" == true ]]; then
+        rm -f -- "${phase_results_file}"
+    fi
+}
+trap cleanup EXIT
 : > "${results_file}"
 printf 'round\tvariant\telapsed_ns\n' >> "${results_file}"
+: > "${phase_results_file}"
+printf 'round\tvariant\tphase\toccurrence\telapsed_ms\n' \
+    >> "${phase_results_file}"
 
-echo "redb baseline/optimized comparison"
+printf 'redb baseline/%s comparison\n' "${candidate_label}"
+printf 'candidate mode: %s\n' "${candidate_label}"
 printf 'runs: %s\n' "${runs}"
 printf 'machine: %s\n' "$(uname -srmo)"
 printf 'CPU vendor: %s\n' "${cpu_vendor}"
@@ -180,7 +200,13 @@ run_variant() {
     local started_ns
     local finished_ns
     local elapsed_ns
+    local output_file
+    local line
+    local phase
+    local phase_ms
+    local occurrence
     local -a pipeline_status
+    local -A phase_occurrences=()
 
     case "${variant}" in
         baseline)
@@ -200,21 +226,42 @@ run_variant() {
         "${variant}" \
         "$([[ "${variant}" == optimized ]] && echo enabled || echo disabled)"
 
+    output_file="$(mktemp)"
     started_ns="$(monotonic_now_ns)"
     set +e
-    "${binary}" 2>&1 | sed -u "s/^/[${variant}] /"
+    "${binary}" 2>&1 \
+        | tee "${output_file}" \
+        | sed -u "s/^/[${variant}] /"
     pipeline_status=("${PIPESTATUS[@]}")
     set -e
     (( pipeline_status[0] == 0 )) \
         || fail "${variant} executable failed with status ${pipeline_status[0]}"
     (( pipeline_status[1] == 0 )) \
-        || fail "could not stream ${variant} output (status ${pipeline_status[1]})"
+        || fail "could not capture ${variant} output (status ${pipeline_status[1]})"
+    (( pipeline_status[2] == 0 )) \
+        || fail "could not stream ${variant} output (status ${pipeline_status[2]})"
     finished_ns="$(monotonic_now_ns)"
     (( finished_ns > started_ns )) \
         || fail "${variant} produced a non-positive monotonic elapsed sample"
     elapsed_ns=$((finished_ns - started_ns))
     printf '%s\t%s\t%s\n' "${round}" "${variant}" "${elapsed_ns}" \
         >> "${results_file}"
+
+    while IFS= read -r line; do
+        if [[ "${line}" =~ ^redb:\ (.*)\ in\ ([0-9]+)ms(,.*)?$ ]]; then
+            phase="${BASH_REMATCH[1]}"
+            phase_ms="${BASH_REMATCH[2]}"
+            occurrence="${phase_occurrences["${phase}"]:-0}"
+            occurrence=$((occurrence + 1))
+            phase_occurrences["${phase}"]="${occurrence}"
+            printf '%s\t%s\t%s\t%s\t%s\n' \
+                "${round}" "${variant}" "${phase}" "${occurrence}" "${phase_ms}" \
+                >> "${phase_results_file}"
+        fi
+    done < "${output_file}"
+    rm -f -- "${output_file}"
+    (( ${#phase_occurrences[@]} > 0 )) \
+        || fail "${variant} emitted no recognized redb phase timings"
 }
 
 for ((round = 1; round <= runs; round++)); do
@@ -254,6 +301,48 @@ awk -F '\t' -v rounds="${runs}" '
     }
 ' "${results_file}"
 
+echo
+awk -F '\t' -v rounds="${runs}" '
+    NR == 1 { next }
+    {
+        key = $3 SUBSEP $4
+        if (!(key in order)) {
+            order[key] = ++key_count
+            ordered_key[key_count] = key
+            phase[key] = $3
+            occurrence[key] = $4
+        }
+        sample_count[key, $2]++
+        total[key, $2] += $5
+    }
+    END {
+        print "phase\toccurrence\tbaseline_mean_ms\toptimized_mean_ms\toptimized_speedup_percent"
+        for (ordinal = 1; ordinal <= key_count; ordinal++) {
+            key = ordered_key[ordinal]
+            if (sample_count[key, "baseline"] != rounds ||
+                sample_count[key, "optimized"] != rounds) {
+                print "redb benchmark comparison: incomplete phase result pair for " phase[key] > "/dev/stderr"
+                exit 1
+            }
+            baseline_mean = total[key, "baseline"] / rounds
+            optimized_mean = total[key, "optimized"] / rounds
+            if (optimized_mean == 0 && baseline_mean > 0) {
+                printf "%s\t%d\t%.1f\t%.1f\t+inf%%\n", \
+                    phase[key], occurrence[key], baseline_mean, optimized_mean
+            } else {
+                speedup = optimized_mean == 0 ? 0 : \
+                    (baseline_mean / optimized_mean - 1) * 100
+                printf "%s\t%d\t%.1f\t%.1f\t%+.2f%%\n", \
+                    phase[key], occurrence[key], baseline_mean, optimized_mean, \
+                    speedup
+            }
+        }
+    }
+' "${phase_results_file}"
+
 if [[ "${temporary_results}" == false ]]; then
     printf 'raw results: %s\n' "${results_file}"
+fi
+if [[ "${temporary_phase_results}" == false ]]; then
+    printf 'raw phase results: %s\n' "${phase_results_file}"
 fi

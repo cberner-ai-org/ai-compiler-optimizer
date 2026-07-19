@@ -21,7 +21,10 @@ printf 'sysroot\n' > "${toolchain_root}/lib/rustlib/test/lib/libstd-fixture.rlib
 printf 'plugin\n' > "${toolchain_root}/lib/libaco_optimizer.so"
 printf 'optimizer wrapper\n' > "${fixture_root}/bin/rustc-with-aco-passes"
 printf 'variant wrapper\n' > "${fixture_root}/bin/with-compiler-variant"
+printf 'mode selector\n' > "${fixture_root}/bin/select-redb-benchmark-mode"
 printf 'lockfile\n' > "${fixture_root}/Cargo.lock"
+printf 'variant\tbuild_elapsed_ms\tbinary_size_bytes\nbaseline\t1\t9\n' \
+    > "${fixture_root}/build-metrics.tsv"
 printf 'baseline\n' > "${fixture_root}/redb-benchmark-baseline"
 printf 'optimized\n' > "${fixture_root}/redb-benchmark-optimized"
 cargo_path="${cargo_toolchain_root}/bin/cargo"
@@ -67,6 +70,8 @@ write_provenance() {
     CUSTOM_TOOLCHAIN_ROOT="${toolchain_root}" \
     CUSTOM_RUSTC_WRAPPER="${fixture_root}/bin/rustc-with-aco-passes" \
     COMPILER_VARIANT_WRAPPER="${fixture_root}/bin/with-compiler-variant" \
+    BENCHMARK_MODE_SELECTOR="${fixture_root}/bin/select-redb-benchmark-mode" \
+    ACO_BUILD_METRICS_FILE="${fixture_root}/build-metrics.tsv" \
     REDB_LOCKFILE="${fixture_root}/Cargo.lock" \
     ACO_BASELINE_BENCHMARK="${fixture_root}/redb-benchmark-baseline" \
     ACO_OPTIMIZED_BENCHMARK="${fixture_root}/redb-benchmark-optimized" \
@@ -86,7 +91,28 @@ manifest_value() {
 manifest="${fixture_root}/benchmark-provenance.tsv"
 write_provenance "${manifest}"
 
-grep --quiet --fixed-strings $'manifest_format\taco-benchmark-provenance-v1' "${manifest}"
+if ACO_BENCHMARK_CANDIDATE_VARIANT=midpoint \
+    ACO_OPTIMIZER_PIPELINE_NAME=aco-passes \
+        write_provenance "${fixture_root}/mismatched-mode.tsv" \
+        > "${fixture_root}/mismatched-mode.log" 2>&1; then
+    echo "benchmark provenance accepted a mismatched mode and pipeline" >&2
+    exit 1
+fi
+grep --quiet --fixed-strings \
+    'midpoint requires optimizer pipeline aco-midpoint-only; got aco-passes' \
+    "${fixture_root}/mismatched-mode.log"
+
+ACO_BENCHMARK_CANDIDATE_VARIANT=midpoint \
+ACO_OPTIMIZER_PIPELINE_NAME=aco-midpoint-only \
+    write_provenance "${fixture_root}/midpoint-provenance.tsv"
+grep --quiet --fixed-strings \
+    $'benchmark_candidate_variant\tmidpoint' \
+    "${fixture_root}/midpoint-provenance.tsv"
+grep --quiet --fixed-strings \
+    $'optimizer_pipeline\taco-midpoint-only' \
+    "${fixture_root}/midpoint-provenance.tsv"
+
+grep --quiet --fixed-strings $'manifest_format\taco-benchmark-provenance-v2' "${manifest}"
 grep --quiet --fixed-strings $'compiler_build_id\tcompiler build id' "${manifest}"
 grep --quiet --fixed-strings $'llvm_library_set_sha256\t' "${manifest}"
 grep --quiet --fixed-strings $'redb_commit\tredb-fixture' "${manifest}"
@@ -104,6 +130,14 @@ grep --quiet --fixed-strings \
     "${manifest}"
 grep --quiet --fixed-strings \
     $'comparison_runner_sha256\t'"$(sha256sum "${repo_root}/scripts/compare-redb-benchmarks.sh" | awk '{print $1}')" \
+    "${manifest}"
+grep --quiet --fixed-strings $'benchmark_candidate_variant\toptimized' "${manifest}"
+grep --quiet --fixed-strings $'optimizer_pipeline\taco-passes' "${manifest}"
+grep --quiet --fixed-strings \
+    $'benchmark_mode_selector_sha256\t'"$(sha256sum "${fixture_root}/bin/select-redb-benchmark-mode" | awk '{print $1}')" \
+    "${manifest}"
+grep --quiet --fixed-strings \
+    $'build_metrics_sha256\t'"$(sha256sum "${fixture_root}/build-metrics.tsv" | awk '{print $1}')" \
     "${manifest}"
 grep --quiet --fixed-strings \
     $'cargo_sha256\t'"$(sha256sum "${cargo_path}" | awk '{print $1}')" \

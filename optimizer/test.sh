@@ -3,11 +3,13 @@ set -euo pipefail
 
 : "${OPT:?OPT must name the matching LLVM opt}"
 : "${PLUGIN:?PLUGIN must name the optimizer plugin}"
+: "${LLVM_CONFIG:?LLVM_CONFIG must name the rustc llvm-config}"
 
 source_parent="${BASH_SOURCE[0]%/*}"
 source_dir="$(cd -- "${source_parent}" && pwd)"
-output="$(mktemp)"
-trap 'rm -f -- "${output}"' EXIT
+temporary_dir="$(mktemp -d)"
+trap 'rm -rf -- "${temporary_dir}"' EXIT
+output="${temporary_dir}/optimizer-output.ll"
 
 "${OPT}" \
     -S \
@@ -90,4 +92,177 @@ grep --quiet --fixed-strings 'call i8 @llvm.scmp.i8.i32' \
 grep --quiet --fixed-strings 'call i8 @llvm.scmp.i8.i64' \
     <<< "${noncanonical_i64}"
 
-echo "optimizer pass regression passed"
+read -r -a llvm_cxxflags <<< "$("${LLVM_CONFIG}" --cxxflags)"
+read -r -a llvm_ldflags <<< "$("${LLVM_CONFIG}" --ldflags)"
+read -r -a llvm_libraries <<< "$("${LLVM_CONFIG}" --libs)"
+read -r -a llvm_system_libraries <<< "$("${LLVM_CONFIG}" --system-libs)"
+
+"${CXX:-c++}" \
+    "${llvm_cxxflags[@]}" \
+    -std=c++20 \
+    -O2 \
+    "${source_dir}/OptimizerPlugin.cpp" \
+    "${source_dir}/OptimizerTestDriver.cpp" \
+    "${llvm_ldflags[@]}" \
+    "${llvm_libraries[@]}" \
+    "${llvm_system_libraries[@]}" \
+    -Wl,-rpath,"$("${LLVM_CONFIG}" --libdir)" \
+    -o "${temporary_dir}/aco-optimizer-test-driver"
+
+run_keyhole_pipeline() {
+    local pipeline="$1"
+    local output_file="$2"
+
+    "${temporary_dir}/aco-optimizer-test-driver" \
+        "${source_dir}/tests/keyhole-input.ll" \
+        "${pipeline}" \
+        > "${output_file}"
+}
+
+match_count() {
+    local pattern="$1"
+    local input_file="$2"
+
+    grep --count -- "${pattern}" "${input_file}" || true
+}
+
+full_output="${temporary_dir}/keyhole-full.ll"
+midpoint_output="${temporary_dir}/keyhole-midpoint.ll"
+slice_output="${temporary_dir}/keyhole-slice.ll"
+key_output="${temporary_dir}/keyhole-key-comparisons.ll"
+unproved_memcmp_output="${temporary_dir}/keyhole-unproved-memcmp.ll"
+run_keyhole_pipeline aco-passes "${full_output}"
+run_keyhole_pipeline aco-midpoint-only "${midpoint_output}"
+run_keyhole_pipeline aco-slice-comparison-only "${slice_output}"
+run_keyhole_pipeline aco-key-comparisons "${key_output}"
+"${temporary_dir}/aco-optimizer-test-driver" \
+    "${source_dir}/tests/keyhole-unproved-memcmp-input.ll" \
+    aco-slice-comparison-only \
+    > "${unproved_memcmp_output}"
+
+for transformed_output in "${full_output}" "${key_output}"; do
+    [[ "$(match_count 'aco.midpoint.result = add nuw' "${transformed_output}")" == 1 ]]
+    [[ "$(match_count '^aco.memcmp.check' "${transformed_output}")" == 1 ]]
+    [[ "$(match_count '^aco.slice-cmp.check' "${transformed_output}")" == 2 ]]
+    [[ "$(match_count '!aco.expanded' "${transformed_output}")" == 3 ]]
+done
+
+slice_function="$(sed -n \
+    '/^define i8 @slice_compare_candidate/,/^}/p' \
+    "${full_output}")"
+grep --quiet --fixed-strings 'aco.slice-cmp.check' <<< "${slice_function}"
+if grep --quiet --fixed-strings 'aco.scmp.nonless' <<< "${slice_function}"; then
+    echo "optimizer test: aggregate pipeline lowered scmp before the slice matcher" >&2
+    exit 1
+fi
+
+side_effect_function="$(sed -n \
+    '/^define i8 @slice_compare_with_interleaved_side_effect/,/^}/p' \
+    "${full_output}")"
+grep --quiet --fixed-strings 'aco.slice-cmp.check' <<< "${side_effect_function}"
+side_effect_join="$(sed -n \
+    '/^aco.slice-cmp.join/,/^}/p' \
+    <<< "${side_effect_function}")"
+grep --quiet --fixed-strings 'call void @side_effect()' \
+    <<< "${side_effect_join}"
+[[ "$(match_count 'call void @side_effect()' "${full_output}")" == 1 ]]
+
+for constrained_function_name in memcmp_convergent memcmp_musttail memcmp_notail; do
+    constrained_function="$(sed -n \
+        "/^define i32 @${constrained_function_name}/,/^}/p" \
+        "${full_output}")"
+    grep --quiet --fixed-strings 'call i32 @memcmp' \
+        <<< "${constrained_function}"
+    if grep --quiet --fixed-strings 'aco.memcmp.' \
+        <<< "${constrained_function}"; then
+        echo "optimizer test: transformed constrained ${constrained_function_name} call" >&2
+        exit 1
+    fi
+done
+
+grep --quiet --fixed-strings \
+    'call i32 @memcmp(ptr %left, ptr %right, i32 %length)' \
+    "${unproved_memcmp_output}"
+if grep --quiet --fixed-strings 'aco.memcmp.' "${unproved_memcmp_output}"; then
+    echo 'optimizer test: transformed memcmp outside the proved 64-bit/i64 domain' >&2
+    exit 1
+fi
+
+[[ "$(match_count 'aco.midpoint.result = add nuw' "${midpoint_output}")" == 1 ]]
+[[ "$(match_count '^aco.memcmp.check' "${midpoint_output}")" == 0 ]]
+[[ "$(match_count '^aco.slice-cmp.check' "${midpoint_output}")" == 0 ]]
+[[ "$(match_count '!aco.expanded' "${midpoint_output}")" == 0 ]]
+
+[[ "$(match_count 'aco.midpoint.result = add nuw' "${slice_output}")" == 0 ]]
+[[ "$(match_count '^aco.memcmp.check' "${slice_output}")" == 1 ]]
+[[ "$(match_count '^aco.slice-cmp.check' "${slice_output}")" == 2 ]]
+[[ "$(match_count '!aco.expanded' "${slice_output}")" == 3 ]]
+
+for transformed_output in "${full_output}" "${midpoint_output}" "${key_output}"; do
+    grep --quiet '^define i64 @unguarded_binary_search' "${transformed_output}"
+    grep --quiet 'trunc nuw i128 %half.wide to i64' "${transformed_output}"
+done
+
+# Exercise the plugin's public pipeline parser independently of the linked
+# structural driver.
+"${OPT}" \
+    -S \
+    -verify-each \
+    -load-pass-plugin="${PLUGIN}" \
+    -passes=aco-midpoint-only \
+    "${source_dir}/tests/keyhole-input.ll" \
+    -o "${temporary_dir}/keyhole-midpoint-opt.ll"
+[[ "$(match_count 'aco.midpoint.result = add nuw' "${temporary_dir}/keyhole-midpoint-opt.ll")" == 1 ]]
+[[ "$(match_count '^aco.slice-cmp.check' "${temporary_dir}/keyhole-midpoint-opt.ll")" == 0 ]]
+
+# Exercise constrained ordering calls through the public plugin with LLVM's
+# verifier after every pass. The generic memcmp expansion remains eligible,
+# but slice specialization must not relocate either ordering call.
+"${OPT}" \
+    -S \
+    -verify-each \
+    -load-pass-plugin="${PLUGIN}" \
+    -passes=aco-slice-comparison-only \
+    "${source_dir}/tests/keyhole-constrained-ordering-input.ll" \
+    -o "${temporary_dir}/keyhole-constrained-ordering-opt.ll"
+
+for constrained_ordering in musttail convergent notail; do
+    constrained_function="$(sed -n \
+        "/^define i8 @slice_compare_ordering_${constrained_ordering}/,/^}/p" \
+        "${temporary_dir}/keyhole-constrained-ordering-opt.ll")"
+    if [[ "${constrained_ordering}" == musttail ]]; then
+        grep --quiet --fixed-strings \
+            'musttail call i8 @llvm.scmp.i8.i64' \
+            <<< "${constrained_function}"
+    elif [[ "${constrained_ordering}" == convergent ]]; then
+        grep --quiet --fixed-strings \
+            'call i8 @llvm.scmp.i8.i64' \
+            <<< "${constrained_function}"
+        grep --quiet --fixed-strings 'convergent' \
+            <<< "${constrained_function}"
+    else
+        grep --quiet --fixed-strings \
+            'notail call i8 @llvm.scmp.i8.i64' \
+            <<< "${constrained_function}"
+    fi
+    if grep --quiet --fixed-strings 'aco.slice-cmp.' \
+        <<< "${constrained_function}"; then
+        echo "optimizer test: specialized constrained ${constrained_ordering} ordering call" >&2
+        exit 1
+    fi
+done
+
+tail_hint_function="$(sed -n \
+    '/^define i8 @slice_compare_ordering_tail_hint/,/^}/p' \
+    "${temporary_dir}/keyhole-constrained-ordering-opt.ll")"
+grep --quiet --fixed-strings 'aco.slice-cmp.check' \
+    <<< "${tail_hint_function}"
+grep --quiet --fixed-strings 'call i8 @llvm.scmp.i8.i64' \
+    <<< "${tail_hint_function}"
+if grep --quiet --fixed-strings 'tail call i8 @llvm.scmp.i8.i64' \
+    <<< "${tail_hint_function}"; then
+    echo 'optimizer test: retained a stale ordering tail hint after relocation' >&2
+    exit 1
+fi
+
+echo "optimizer pass regressions passed"

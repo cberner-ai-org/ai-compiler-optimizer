@@ -1,0 +1,15 @@
+round	variant	elapsed_ns
+1	baseline	51455779693
+1	optimized	50255101314
+2	optimized	50459646195
+2	baseline	50419018406
+3	baseline	50184639630
+3	optimized	50518894825
+4	optimized	51531664533
+4	baseline	52570799271
+5	baseline	54139658202
+5	optimized	57091853240
+6	optimized	66021960706
+6	baseline	56318436311
+7	baseline	53446378326
+7	optimized	52635308162

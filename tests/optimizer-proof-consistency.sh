@@ -6,6 +6,7 @@ implementation="${repo_root}/optimizer/OptimizerPlugin.cpp"
 proof="${repo_root}/optimizer/proofs/scmp-i64-switch-classification.opt"
 undef_proof="${repo_root}/optimizer/proofs/scmp-i64-switch-undef-correlation.opt"
 unfrozen_regression="${repo_root}/tests/alive2/00-scmp-i64-switch-unfrozen.opt"
+memcmp_proof="${repo_root}/optimizer/proofs/memcmp-first-byte.srctgt.ll"
 
 for implementation_fragment in \
     'Intrinsic::scmp' \
@@ -24,6 +25,44 @@ for implementation_fragment in \
     'NonLessBuilder.CreateCondBr(IsEqual, Equal, Greater);'; do
     rg --quiet --fixed-strings "${implementation_fragment}" "${implementation}" || {
         echo "optimizer proof consistency: implementation is missing ${implementation_fragment}" >&2
+        exit 1
+    }
+done
+
+# Keep the C++ eligibility predicate no broader than the ABI and call semantics
+# modeled by the tracked memcmp obligation. Adding a supported domain requires
+# changing this contract and adding a matching proof in the same diff.
+for implementation_fragment in \
+    'isProvenMemcmpCall' \
+    'hasUnsupportedCallControlContract(Call)' \
+    'hasUnsupportedCallControlContract(*Ordering)' \
+    'Call.isConvergent()' \
+    'Call.isMustTailCall()' \
+    'Call.getTailCallKind() == llvm::CallInst::TCK_NoTail' \
+    'Call.getCallingConv() != llvm::CallingConv::C' \
+    'Call.hasOperandBundles()' \
+    'Call.hasFnAttr(llvm::Attribute::NoReturn)' \
+    'Call.hasFnAttr(llvm::Attribute::ReturnsTwice)' \
+    'Call.hasFnAttr(llvm::Attribute::NoDuplicate)' \
+    '!Layout.isLittleEndian()' \
+    'Layout.getPointerSizeInBits(0) != 64' \
+    'isIntegerTy(64)' \
+    'LeftPointer->getAddressSpace() == 0' \
+    'RightPointer->getAddressSpace() == 0'; do
+    rg --quiet --fixed-strings "${implementation_fragment}" "${implementation}" || {
+        echo "optimizer proof consistency: memcmp matcher is missing ${implementation_fragment}" >&2
+        exit 1
+    }
+done
+
+for proof_fragment in \
+    'target datalayout = "e-p:64:64:64"' \
+    'define i32 @src(ptr captures(none) %left, ptr captures(none) %right, i64 %length)' \
+    '%result = call i32 @memcmp(ptr %left, ptr %right, i64 %length)' \
+    'define i32 @tgt(ptr captures(none) %left, ptr captures(none) %right, i64 %length)' \
+    'declare i32 @memcmp(ptr captures(none), ptr captures(none), i64)'; do
+    rg --quiet --fixed-strings "${proof_fragment}" "${memcmp_proof}" || {
+        echo "optimizer proof consistency: memcmp proof is missing ${proof_fragment}" >&2
         exit 1
     }
 done

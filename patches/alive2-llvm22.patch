@@ -1,0 +1,105 @@
+diff --git a/llvm_util/llvm_optimizer.cpp b/llvm_util/llvm_optimizer.cpp
+index 4779cd4..fe2fbfa 100644
+--- a/llvm_util/llvm_optimizer.cpp
++++ b/llvm_util/llvm_optimizer.cpp
+@@ -29,7 +29,7 @@ string optimize_module(llvm::Module &M, string_view optArgs) {
+   Triple ModuleTriple(M.getTargetTriple());
+   unique_ptr<llvm::TargetMachine> TM;
+   if (ModuleTriple.getArch()) {
+-    auto ETM = codegen::createTargetMachineForTriple(ModuleTriple);
++    auto ETM = codegen::createTargetMachineForTriple(ModuleTriple.str());
+     if (auto E = ETM.takeError())
+       return toString(std::move(E));
+     TM = std::move(*ETM);
+diff --git a/llvm_util/llvm2alive.cpp b/llvm_util/llvm2alive.cpp
+index 86106ef..6219c9b 100644
+--- a/llvm_util/llvm2alive.cpp
++++ b/llvm_util/llvm2alive.cpp
+@@ -6,6 +6,7 @@
+ #include "llvm_util/known_fns.h"
+ #include "llvm_util/utils.h"
+ #include "util/sort.h"
++#include "llvm/Config/llvm-config.h"
+ #include "llvm/ADT/SmallVector.h"
+ #include "llvm/Analysis/MemoryBuiltins.h"
+ #include "llvm/Analysis/ValueTracking.h"
+@@ -704,6 +705,7 @@ class llvm2alive_ : public llvm::InstVisitor<llvm2alive_, RetTy> {
+     return phi;
+   }
+
++#if LLVM_VERSION_MAJOR >= 23
+   RetTy visitUncondBrInst(llvm::UncondBrInst &i) {
+     return make_unique<Branch>(getBB(i.getSuccessor(0)));
+   }
+@@ -717,6 +719,19 @@ class llvm2alive_ : public llvm::InstVisitor<llvm2alive_, RetTy> {
+       return error(i);
+     return make_unique<Branch>(*cond, dst_true, dst_false);
+   }
++#else
++  RetTy visitBranchInst(llvm::BranchInst &i) {
++    if (i.isUnconditional())
++      return make_unique<Branch>(getBB(i.getSuccessor(0)));
++
++    auto &dst_true = getBB(i.getSuccessor(0));
++    auto &dst_false = getBB(i.getSuccessor(1));
++    auto cond = get_operand(i.getCondition());
++    if (!cond)
++      return error(i);
++    return make_unique<Branch>(*cond, dst_true, dst_false);
++  }
++#endif
+
+   RetTy visitSwitchInst(llvm::SwitchInst &i) {
+     auto cond = get_operand(i.getCondition());
+@@ -842,8 +857,11 @@ class llvm2alive_ : public llvm::InstVisitor<llvm2alive_, RetTy> {
+     case llvm::Intrinsic::ucmp:
+     case llvm::Intrinsic::scmp:
+     case llvm::Intrinsic::clmul:
++#if LLVM_VERSION_MAJOR >= 23
+     case llvm::Intrinsic::pext:
+-    case llvm::Intrinsic::pdep: {
++    case llvm::Intrinsic::pdep:
++#endif
++    {
+       PARSE_BINOP();
+       addNoundefAssumes(i, {a, b});
+       BinOp::Op op;
+@@ -870,8 +887,10 @@ class llvm2alive_ : public llvm::InstVisitor<llvm2alive_, RetTy> {
+       case llvm::Intrinsic::ucmp:     op = BinOp::UCmp; break;
+       case llvm::Intrinsic::scmp:     op = BinOp::SCmp; break;
+       case llvm::Intrinsic::clmul:    op = BinOp::Clmul; break;
++#if LLVM_VERSION_MAJOR >= 23
+       case llvm::Intrinsic::pext:     op = BinOp::PExt; break;
+       case llvm::Intrinsic::pdep:     op = BinOp::PDep; break;
++#endif
+       default: UNREACHABLE();
+       }
+       ret = make_unique<BinOp>(*ty, value_name(i), *a, *b, op);
+@@ -1677,9 +1696,11 @@ class llvm2alive_ : public llvm::InstVisitor<llvm2alive_, RetTy> {
+
+       case llvm::Attribute::DeadOnReturn: {
+         attrs.set(ParamAttrs::DeadOnReturn);
++#if LLVM_VERSION_MAJOR >= 23
+         const auto &info = llvmattr.getDeadOnReturnInfo();
+         if (!info.coversAllReachableMemory())
+           attrs.deadOnReturnBytes = info.getNumberOfDeadBytes();
++#endif
+         break;
+       }
+
+@@ -1794,6 +1815,7 @@ class llvm2alive_ : public llvm::InstVisitor<llvm2alive_, RetTy> {
+           attrs.allocsize_1 = *args.second;
+         break;
+       }
++#if LLVM_VERSION_MAJOR >= 23
+       case llvm::Attribute::DenormalFPEnv: {
+         auto fp_env = llvmattr.getDenormalFPEnv();
+         attrs.setFPDenormal(parse_fp_denormal(fp_env.DefaultMode));
+@@ -1801,6 +1823,7 @@ class llvm2alive_ : public llvm::InstVisitor<llvm2alive_, RetTy> {
+           attrs.setFPDenormal(parse_fp_denormal(fp_env.F32Mode), 32);
+         break;
+       }
++#endif
+       case llvm::Attribute::AllocKind: {
+         auto kind = llvmattr.getAllocKind();
+         if ((kind & llvm::AllocFnKind::Alloc) != llvm::AllocFnKind::Unknown)

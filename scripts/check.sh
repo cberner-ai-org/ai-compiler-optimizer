@@ -154,6 +154,28 @@ rg --quiet --fixed-strings \
     'id=ai-compiler-optimizer-redb-target-${BUILD_ENVIRONMENT_ID}' \
     "${repo_root}/containers/Containerfile" \
     || fail "redb target cache is not scoped to the pinned environment"
+if rg --quiet --fixed-strings \
+    'ai-compiler-optimizer-redb-benchmark-' \
+    "${repo_root}/containers/Containerfile"; then
+    fail "measured redb builds must not reuse a persistent target cache"
+fi
+rg --quiet --fixed-strings \
+    'ACO_CARGO_TARGET_ROOT=/tmp/aco-redb-measured-target' \
+    "${repo_root}/containers/Containerfile" \
+    || fail "measured redb builds do not use the isolated target root"
+measured_target_guard_count="$(
+    rg --count --fixed-strings \
+        'test ! -e "${ACO_CARGO_TARGET_ROOT}"' \
+        "${repo_root}/containers/Containerfile"
+)"
+measured_target_cleanup_count="$(
+    rg --count --fixed-strings \
+        'rm -rf -- "${ACO_CARGO_TARGET_ROOT}"' \
+        "${repo_root}/containers/Containerfile"
+)"
+[[ "${measured_target_guard_count}" == 5 \
+    && "${measured_target_cleanup_count}" == 5 ]] \
+    || fail "every measured redb build must start empty and remove its target"
 rg --quiet --fixed-strings \
     'build-environment:%s\n' \
     "${repo_root}/containers/Containerfile" \
@@ -238,13 +260,19 @@ for script in "${repo_root}"/tests/*.sh; do
 done
 bash -n "${repo_root}/optimizer/build.sh"
 bash -n "${repo_root}/optimizer/test.sh"
+[[ -x "${repo_root}/optimizer/test.sh" ]] \
+    || fail "optimizer/test.sh must be executable"
 "${repo_root}/tests/cargo-artifact-selection.sh"
 "${repo_root}/tests/alive2-proof-gate.sh"
 "${repo_root}/tests/benchmark-provenance.sh"
 "${repo_root}/tests/build-argument-protection.sh"
 "${repo_root}/tests/compiler-variant-wrapper.sh"
 "${repo_root}/tests/optimizer-proof-consistency.sh"
+"${repo_root}/tests/ir-candidate-inventory.sh"
 "${repo_root}/tests/redb-benchmark-comparison.sh"
+"${repo_root}/tests/redb-benchmark-mode-selector.sh"
+"${repo_root}/tests/redb-build-metrics.sh"
+"${repo_root}/tests/redb-paired-total-summary.sh"
 "${repo_root}/tests/redb-subbenchmark-summary.sh"
 "${repo_root}/tests/redb-variant-traces.sh"
 

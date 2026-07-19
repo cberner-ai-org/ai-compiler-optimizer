@@ -26,9 +26,33 @@ variant_wrapper="${COMPILER_VARIANT_WRAPPER:-/usr/local/bin/with-compiler-varian
 redb_lockfile="${REDB_LOCKFILE:-/usr/src/redb/Cargo.lock}"
 baseline_binary="${ACO_BASELINE_BENCHMARK:-/usr/local/bin/redb-benchmark-baseline}"
 optimized_binary="${ACO_OPTIMIZED_BENCHMARK:-/usr/local/bin/redb-benchmark-optimized}"
+candidate_variant="${ACO_BENCHMARK_CANDIDATE_VARIANT:-optimized}"
+optimizer_pipeline="${ACO_OPTIMIZER_PIPELINE_NAME:-aco-passes}"
 cargo_proxy_path="${CARGO_PATH:-$(command -v cargo)}"
 monotonic_clock="${MONOTONIC_CLOCK_PATH:-/usr/local/bin/aco-monotonic-clock}"
 comparison_runner="${BENCHMARK_RUNNER:-/usr/local/bin/compare-redb-benchmarks}"
+mode_selector="${BENCHMARK_MODE_SELECTOR:-/usr/local/bin/select-redb-benchmark-mode}"
+build_metrics="${ACO_BUILD_METRICS_FILE:-/usr/local/share/ai-compiler-optimizer/redb-build-metrics.tsv}"
+
+case "${candidate_variant}" in
+    optimized)
+        expected_optimizer_pipeline=aco-passes
+        ;;
+    midpoint)
+        expected_optimizer_pipeline=aco-midpoint-only
+        ;;
+    slice-comparison)
+        expected_optimizer_pipeline=aco-slice-comparison-only
+        ;;
+    key-comparisons)
+        expected_optimizer_pipeline=aco-key-comparisons
+        ;;
+    *)
+        fail "unsupported benchmark candidate variant: ${candidate_variant}"
+        ;;
+esac
+[[ "${optimizer_pipeline}" == "${expected_optimizer_pipeline}" ]] ||
+    fail "${candidate_variant} requires optimizer pipeline ${expected_optimizer_pipeline}; got ${optimizer_pipeline}"
 
 canonical_path() {
     readlink --canonicalize-existing -- "$1"
@@ -68,7 +92,9 @@ for input in \
     "${cargo_proxy_path}" \
     "${cargo_path}" \
     "${monotonic_clock}" \
-    "${comparison_runner}"; do
+    "${comparison_runner}" \
+    "${mode_selector}" \
+    "${build_metrics}"; do
     [[ -s "${input}" ]] || fail "missing provenance input: ${input}"
 done
 
@@ -126,6 +152,10 @@ monotonic_clock_sha256="$(hash_file "${monotonic_clock}")" \
     || fail "could not hash the monotonic clock"
 comparison_runner_sha256="$(hash_file "${comparison_runner}")" \
     || fail "could not hash the comparison runner"
+mode_selector_sha256="$(hash_file "${mode_selector}")" \
+    || fail "could not hash the benchmark mode selector"
+build_metrics_sha256="$(hash_file "${build_metrics}")" \
+    || fail "could not hash the build metrics"
 redb_lockfile_sha256="$(hash_file "${redb_lockfile}")" \
     || fail "could not hash the redb lockfile"
 baseline_benchmark_sha256="$(hash_file "${baseline_binary}")" \
@@ -142,14 +172,15 @@ temporary_manifest="$(mktemp "${manifest_directory}/.benchmark-provenance.XXXXXX
 trap 'rm -f -- "${temporary_manifest}"' EXIT
 
 {
-    printf 'manifest_format\taco-benchmark-provenance-v1\n'
+    printf 'manifest_format\taco-benchmark-provenance-v2\n'
     printf 'build_environment_id\t%s\n' "${BUILD_ENVIRONMENT_ID}"
     printf 'rust_image\t%s\n' "${RUST_IMAGE}"
     printf 'debian_snapshot\t%s\n' "${DEBIAN_SNAPSHOT}"
     printf 'rust_version\t%s\n' "${RUST_VERSION}"
     printf 'rust_commit\t%s\n' "${RUST_COMMIT}"
     printf '%s\n' "${compiler_manifest_contents}"
-    printf 'optimizer_pipeline\taco-passes\n'
+    printf 'benchmark_candidate_variant\t%s\n' "${candidate_variant}"
+    printf 'optimizer_pipeline\t%s\n' "${optimizer_pipeline}"
     printf 'optimizer_plugin_sha256\t%s\n' "${optimizer_plugin_sha256}"
     printf 'optimizer_wrapper_sha256\t%s\n' "${optimizer_wrapper_sha256}"
     printf 'compiler_variant_wrapper_sha256\t%s\n' "${variant_wrapper_sha256}"
@@ -159,11 +190,15 @@ trap 'rm -f -- "${temporary_manifest}"' EXIT
     printf 'monotonic_clock\tclock_gettime(CLOCK_MONOTONIC)\n'
     printf 'monotonic_clock_sha256\t%s\n' "${monotonic_clock_sha256}"
     printf 'comparison_runner_sha256\t%s\n' "${comparison_runner_sha256}"
+    printf 'benchmark_mode_selector_sha256\t%s\n' "${mode_selector_sha256}"
+    printf 'build_metrics_sha256\t%s\n' "${build_metrics_sha256}"
     printf 'redb_version\t%s\n' "${REDB_VERSION}"
     printf 'redb_commit\t%s\n' "${REDB_COMMIT}"
     printf 'redb_lockfile_sha256\t%s\n' "${redb_lockfile_sha256}"
     printf 'baseline_benchmark_sha256\t%s\n' "${baseline_benchmark_sha256}"
+    printf 'baseline_benchmark_size_bytes\t%s\n' "$(stat --printf '%s' "${baseline_binary}")"
     printf 'optimized_benchmark_sha256\t%s\n' "${optimized_benchmark_sha256}"
+    printf 'optimized_benchmark_size_bytes\t%s\n' "$(stat --printf '%s' "${optimized_binary}")"
 } > "${temporary_manifest}"
 
 chmod 0644 "${temporary_manifest}"
