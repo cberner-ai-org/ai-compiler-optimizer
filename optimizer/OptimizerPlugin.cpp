@@ -15,6 +15,7 @@
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Plugins/PassPlugin.h"
 #include "llvm/Support/Compiler.h"
+#include "llvm/Support/ModRef.h"
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/Utils/Local.h"
 
@@ -215,6 +216,52 @@ private:
     return false;
   }
 
+  static bool hasUnsupportedMemcmpAttributeContract(
+      const llvm::CallInst &Call, const llvm::Function &Callee) {
+    // Keep the accepted attribute surface identical to the two tracked memcmp
+    // obligations. Rust's slice comparison emits nonnull on both pointer
+    // operands; the attributed obligation models exactly that shape. Every
+    // other call-site return or parameter contract remains fail closed.
+    if (Call.getAttributes().getRetAttrs().hasAttributes())
+      return true;
+
+    llvm::AttributeSet LeftAttributes =
+        Call.getAttributes().getParamAttrs(0);
+    llvm::AttributeSet RightAttributes =
+        Call.getAttributes().getParamAttrs(1);
+    llvm::AttributeSet LengthAttributes =
+        Call.getAttributes().getParamAttrs(2);
+    bool HasNoCallParameterAttributes =
+        !LeftAttributes.hasAttributes() && !RightAttributes.hasAttributes() &&
+        !LengthAttributes.hasAttributes();
+    bool HasProvenNonnullAttributes =
+        LeftAttributes.getNumAttributes() == 1 &&
+        LeftAttributes.hasAttribute(llvm::Attribute::NonNull) &&
+        RightAttributes.getNumAttributes() == 1 &&
+        RightAttributes.hasAttribute(llvm::Attribute::NonNull) &&
+        !LengthAttributes.hasAttributes();
+    if (!HasNoCallParameterAttributes && !HasProvenNonnullAttributes)
+      return true;
+
+    if (Callee.getAttributes().getRetAttrs().hasAttributes())
+      return true;
+
+    for (unsigned Index = 0; Index != Call.arg_size(); ++Index) {
+      llvm::AttributeSet CalleeAttributes =
+          Callee.getAttributes().getParamAttrs(Index);
+      unsigned SupportedCalleeAttributes =
+          CalleeAttributes.hasAttribute(llvm::Attribute::Captures) ? 1 : 0;
+      if (CalleeAttributes.getNumAttributes() != SupportedCalleeAttributes)
+        return true;
+    }
+    return false;
+  }
+
+  static bool permitsProvenMemcmpReads(llvm::MemoryEffects Effects) {
+    return llvm::isRefSet(
+        Effects.getModRef(llvm::MemoryEffects::Location::ArgMem));
+  }
+
   static bool isProvenMemcmpCall(
       const llvm::CallInst &Call,
       const llvm::TargetLibraryInfo &LibraryInfo) {
@@ -225,6 +272,13 @@ private:
         Call.getType() != llvm::Type::getInt32Ty(Call.getContext()) ||
         Call.getMetadata("aco.expanded") ||
         hasUnsupportedCallControlContract(Call))
+      return false;
+
+    const llvm::Function *Callee = Call.getCalledFunction();
+    if (!Callee || hasUnsupportedMemcmpAttributeContract(Call, *Callee) ||
+        !permitsProvenMemcmpReads(
+            Call.getAttributes().getMemoryEffects()) ||
+        !permitsProvenMemcmpReads(Callee->getMemoryEffects()))
       return false;
 
     const llvm::DataLayout &Layout = Call.getModule()->getDataLayout();

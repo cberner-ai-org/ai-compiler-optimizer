@@ -131,6 +131,10 @@ midpoint_output="${temporary_dir}/keyhole-midpoint.ll"
 slice_output="${temporary_dir}/keyhole-slice.ll"
 key_output="${temporary_dir}/keyhole-key-comparisons.ll"
 unproved_memcmp_output="${temporary_dir}/keyhole-unproved-memcmp.ll"
+argument_contract_output="${temporary_dir}/keyhole-argument-contract.ll"
+call_memory_contract_output="${temporary_dir}/keyhole-call-memory-contract.ll"
+declaration_memory_contract_output="${temporary_dir}/keyhole-declaration-memory-contract.ll"
+declaration_argument_contract_output="${temporary_dir}/keyhole-declaration-argument-contract.ll"
 run_keyhole_pipeline aco-passes "${full_output}"
 run_keyhole_pipeline aco-midpoint-only "${midpoint_output}"
 run_keyhole_pipeline aco-slice-comparison-only "${slice_output}"
@@ -139,6 +143,21 @@ run_keyhole_pipeline aco-key-comparisons "${key_output}"
     "${source_dir}/tests/keyhole-unproved-memcmp-input.ll" \
     aco-slice-comparison-only \
     > "${unproved_memcmp_output}"
+for contract_fixture in \
+    argument-contract \
+    call-memory-contract \
+    declaration-argument-contract \
+    declaration-memory-contract; do
+    input_name="keyhole-${contract_fixture}-input.ll"
+    output_name="${temporary_dir}/keyhole-${contract_fixture}.ll"
+    "${OPT}" \
+        -S \
+        -verify-each \
+        -load-pass-plugin="${PLUGIN}" \
+        -passes=aco-slice-comparison-only \
+        "${source_dir}/tests/${input_name}" \
+        -o "${output_name}"
+done
 
 for transformed_output in "${full_output}" "${key_output}"; do
     [[ "$(match_count 'aco.midpoint.result = add nuw' "${transformed_output}")" == 1 ]]
@@ -185,6 +204,57 @@ grep --quiet --fixed-strings \
     "${unproved_memcmp_output}"
 if grep --quiet --fixed-strings 'aco.memcmp.' "${unproved_memcmp_output}"; then
     echo 'optimizer test: transformed memcmp outside the proved 64-bit/i64 domain' >&2
+    exit 1
+fi
+
+for unsupported_function_name in \
+    memcmp_unproved_partial_nonnull \
+    memcmp_unproved_noundef \
+    memcmp_unproved_dereferenceable \
+    memcmp_unproved_alignment; do
+    unsupported_function="$(sed -n \
+        "/^define i32 @${unsupported_function_name}/,/^}/p" \
+        "${argument_contract_output}")"
+    grep --quiet --fixed-strings '@memcmp(' \
+        <<< "${unsupported_function}"
+    if grep --quiet --fixed-strings 'aco.memcmp.' \
+        <<< "${unsupported_function}"; then
+        echo "optimizer test: transformed unproved ${unsupported_function_name} contract" >&2
+        exit 1
+    fi
+done
+proved_function="$(sed -n \
+    '/^define i32 @memcmp_proved_nonnull/,/^}/p' \
+    "${argument_contract_output}")"
+grep --quiet --fixed-strings 'aco.memcmp.check' <<< "${proved_function}"
+[[ "$(match_count '^aco.memcmp.check' "${argument_contract_output}")" == 1 ]]
+
+for unsupported_function_name in \
+    memcmp_call_memory_none \
+    memcmp_call_inaccessible_memory; do
+    unsupported_function="$(sed -n \
+        "/^define i32 @${unsupported_function_name}/,/^}/p" \
+        "${call_memory_contract_output}")"
+    if grep --quiet --fixed-strings 'aco.memcmp.' \
+        <<< "${unsupported_function}"; then
+        echo "optimizer test: transformed incompatible ${unsupported_function_name} effects" >&2
+        exit 1
+    fi
+done
+argmem_read_function="$(sed -n \
+    '/^define i32 @memcmp_call_argmem_read/,/^}/p' \
+    "${call_memory_contract_output}")"
+grep --quiet --fixed-strings 'aco.memcmp.check' \
+    <<< "${argmem_read_function}"
+[[ "$(match_count '^aco.memcmp.check' "${call_memory_contract_output}")" == 1 ]]
+if grep --quiet --fixed-strings 'aco.memcmp.' \
+    "${declaration_memory_contract_output}"; then
+    echo 'optimizer test: transformed memcmp with memory(none) declaration' >&2
+    exit 1
+fi
+if grep --quiet --fixed-strings 'aco.memcmp.' \
+    "${declaration_argument_contract_output}"; then
+    echo 'optimizer test: transformed memcmp with declaration argument contract' >&2
     exit 1
 fi
 

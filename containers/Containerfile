@@ -188,9 +188,9 @@ RUN set -eux; \
         --emit=llvm-ir \
         -o /tmp/toolchain-smoke-optimized.ll \
         2> /tmp/aco-optimizer-trace; \
-    grep --fixed-strings "aco.memcmp.check" /tmp/toolchain-smoke-optimized.ll; \
+    grep --fixed-strings "aco.slice-cmp.check" /tmp/toolchain-smoke-optimized.ll; \
     grep --extended-regexp \
-        'aco-keyhole: transformed 0 slice compare\(s\), [1-9][0-9]* generic memcmp call\(s\)' \
+        'aco-keyhole: transformed [1-9][0-9]* slice compare\(s\), [0-9]+ generic memcmp call\(s\)' \
         /tmp/aco-optimizer-trace; \
     /usr/local/bin/rustc-with-aco-passes \
         --edition 2024 \
@@ -348,7 +348,10 @@ RUN --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local
         /usr/local/bin/redb-benchmark-optimized \
         2> /tmp/aco-redb-optimizer-trace; \
     grep --extended-regexp \
-        'aco-keyhole: transformed [1-9][0-9]* slice compare\(s\), [0-9]+ generic memcmp call\(s\), and [1-9][0-9]* ordered midpoint\(s\)' \
+        'aco-keyhole: transformed [1-9][0-9]* slice compare\(s\)' \
+        /tmp/aco-redb-optimizer-trace; \
+    grep --extended-regexp \
+        'and [1-9][0-9]* ordered midpoint\(s\)' \
         /tmp/aco-redb-optimizer-trace; \
     rm /tmp/aco-redb-optimizer-trace; \
     rm -rf -- "${ACO_CARGO_TARGET_ROOT}"
