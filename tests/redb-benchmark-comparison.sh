@@ -43,6 +43,12 @@ printf '%s\t%s\n' \
     comparison_runner_sha256 "${runner_sha256}" \
     > "${provenance_file}"
 
+cpuinfo_file="${fixture_root}/cpuinfo"
+printf '%s\n' \
+    'vendor_id : QA Vendor' \
+    'model name : QA CPU 9000' \
+    > "${cpuinfo_file}"
+
 results_file="${fixture_root}/results.tsv"
 order_file="${fixture_root}/order"
 output_file="${fixture_root}/output"
@@ -52,6 +58,7 @@ ACO_BENCHMARK_RUNS=2 \
 ACO_BENCHMARK_RESULTS="${results_file}" \
 ACO_BENCHMARK_PROVENANCE="${provenance_file}" \
 ACO_MONOTONIC_CLOCK="${fake_clock}" \
+ACO_CPUINFO="${cpuinfo_file}" \
 ACO_TEST_CLOCK_STATE="${clock_state}" \
 ACO_TEST_ORDER_FILE="${order_file}" \
     "${repo_root}/scripts/compare-redb-benchmarks.sh" > "${output_file}"
@@ -71,6 +78,8 @@ grep --quiet --fixed-strings $'round\tbaseline_s\toptimized_s\toptimized_speedup
 grep --quiet --fixed-strings $'mean\t' "${output_file}"
 grep --quiet --fixed-strings 'effective CPU list:' "${output_file}"
 grep --quiet --fixed-strings 'effective CPU count:' "${output_file}"
+grep --quiet --fixed-strings 'CPU vendor: QA Vendor' "${output_file}"
+grep --quiet --fixed-strings 'CPU model: QA CPU 9000' "${output_file}"
 grep --quiet --fixed-strings 'timing clock: clock_gettime(CLOCK_MONOTONIC)' "${output_file}"
 grep --quiet --fixed-strings \
     "comparison runner sha256: ${runner_sha256}" \

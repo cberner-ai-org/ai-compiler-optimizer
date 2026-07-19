@@ -1,0 +1,12 @@
+Name: reject uncorrelated undef uses in staged signed i64 comparison
+%source_left = freeze i64 undef
+%cmp = scmp i8 i64 %source_left, i64 9223372036854775807
+%is_less = icmp eq i8 %cmp, -1
+%is_equal = icmp eq i8 %cmp, 0
+%nonless_result = select i1 %is_equal, i8 0, i8 1
+%result = select i1 %is_less, i8 -1, i8 %nonless_result
+  =>
+%unfrozen_less = icmp slt i64 undef, 9223372036854775807
+%unfrozen_equal = icmp eq i64 undef, 9223372036854775807
+%unfrozen_nonless = select i1 %unfrozen_equal, i8 0, i8 1
+%result = select i1 %unfrozen_less, i8 -1, i8 %unfrozen_nonless

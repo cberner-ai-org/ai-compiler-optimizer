@@ -1,0 +1,13 @@
+Name: lower signed i64 three-way compare through staged control flow
+%cmp = scmp i8 i64 %left, i64 %right
+%is_less = icmp eq i8 %cmp, -1
+%is_equal = icmp eq i8 %cmp, 0
+%nonless_result = select i1 %is_equal, i8 0, i8 1
+%result = select i1 %is_less, i8 -1, i8 %nonless_result
+  =>
+%frozen_left = freeze i64 %left
+%frozen_right = freeze i64 %right
+%is_less = icmp slt i64 %frozen_left, %frozen_right
+%is_equal = icmp eq i64 %frozen_left, %frozen_right
+%nonless_result = select i1 %is_equal, i8 0, i8 1
+%result = select i1 %is_less, i8 -1, i8 %nonless_result

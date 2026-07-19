@@ -164,6 +164,14 @@ rg --quiet --fixed-strings "with-compiler-variant baseline" \
 rg --quiet --fixed-strings "with-compiler-variant optimized" \
     "${repo_root}/containers/Containerfile" \
     || fail "redb optimized variant does not enable custom optimization passes"
+rg --quiet --fixed-strings \
+    'COPY tests/redb-ir-probe/ /usr/src/tests/redb-ir-probe/' \
+    "${repo_root}/containers/Containerfile" \
+    || fail "benchmark image does not compile the redb optimizer coverage probe"
+rg --quiet --fixed-strings \
+    "verify-redb-variant-traces" \
+    "${repo_root}/containers/Containerfile" \
+    || fail "benchmark image does not verify the fresh baseline/optimized traces"
 rg --quiet --fixed-strings "libaco_optimizer.so" \
     "${repo_root}/containers/Containerfile" \
     || fail "Containerfile does not install the optimizer pass plugin"
@@ -195,6 +203,9 @@ rg --quiet --fixed-strings "llvm_library_set_sha256" \
 rg --quiet --fixed-strings "provenance manifest sha256" \
     "${repo_root}/scripts/compare-redb-benchmarks.sh" \
     || fail "benchmark runner does not report its build provenance"
+rg --quiet --fixed-strings "CPU model:" \
+    "${repo_root}/scripts/compare-redb-benchmarks.sh" \
+    || fail "benchmark runner does not report the CPU model"
 rg --quiet --fixed-strings "comparison runner does not match the provenance manifest" \
     "${repo_root}/scripts/compare-redb-benchmarks.sh" \
     || fail "benchmark runner is not bound to its provenance manifest"
@@ -226,12 +237,16 @@ for script in "${repo_root}"/tests/*.sh; do
     bash -n "${script}"
 done
 bash -n "${repo_root}/optimizer/build.sh"
+bash -n "${repo_root}/optimizer/test.sh"
 "${repo_root}/tests/cargo-artifact-selection.sh"
 "${repo_root}/tests/alive2-proof-gate.sh"
 "${repo_root}/tests/benchmark-provenance.sh"
 "${repo_root}/tests/build-argument-protection.sh"
 "${repo_root}/tests/compiler-variant-wrapper.sh"
+"${repo_root}/tests/optimizer-proof-consistency.sh"
 "${repo_root}/tests/redb-benchmark-comparison.sh"
+"${repo_root}/tests/redb-subbenchmark-summary.sh"
+"${repo_root}/tests/redb-variant-traces.sh"
 
 git -C "${repo_root}" diff --check
 echo "scaffolding checks passed"

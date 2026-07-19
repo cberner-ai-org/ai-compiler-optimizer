@@ -99,6 +99,40 @@ online_cpu_count="$(getconf _NPROCESSORS_ONLN)"
 [[ "${online_cpu_count}" =~ ^[1-9][0-9]*$ ]] \
     || fail "online CPU count is not a positive integer"
 
+cpuinfo_file="${ACO_CPUINFO:-/proc/cpuinfo}"
+[[ -r "${cpuinfo_file}" ]] \
+    || fail "CPU information is not readable: ${cpuinfo_file}"
+cpu_vendor="$(
+    awk -F ':' '
+        $1 ~ /^[[:space:]]*(vendor_id|CPU implementer|vendor)[[:space:]]*$/ {
+            value = $2
+            sub(/^[[:space:]]+/, "", value)
+            sub(/[[:space:]]+$/, "", value)
+            if (value != "") {
+                print value
+                exit
+            }
+        }
+    ' "${cpuinfo_file}"
+)"
+cpu_model="$(
+    awk -F ':' '
+        $1 ~ /^[[:space:]]*(model name|Model|Hardware|Processor|uarch)[[:space:]]*$/ {
+            value = $2
+            sub(/^[[:space:]]+/, "", value)
+            sub(/[[:space:]]+$/, "", value)
+            if (value != "") {
+                print value
+                exit
+            }
+        }
+    ' "${cpuinfo_file}"
+)"
+[[ -n "${cpu_vendor}" ]] \
+    || fail "could not identify the CPU vendor from ${cpuinfo_file}"
+[[ -n "${cpu_model}" ]] \
+    || fail "could not identify the CPU model from ${cpuinfo_file}"
+
 monotonic_now_ns() {
     local value
 
@@ -124,6 +158,8 @@ printf 'round\tvariant\telapsed_ns\n' >> "${results_file}"
 echo "redb baseline/optimized comparison"
 printf 'runs: %s\n' "${runs}"
 printf 'machine: %s\n' "$(uname -srmo)"
+printf 'CPU vendor: %s\n' "${cpu_vendor}"
+printf 'CPU model: %s\n' "${cpu_model}"
 printf 'online CPU count: %s\n' "${online_cpu_count}"
 printf 'effective CPU list: %s\n' "${effective_cpu_list}"
 printf 'effective CPU count: %s\n' "${effective_cpu_count}"

@@ -28,43 +28,7 @@ case "${target}" in
         ;;
 esac
 
-is_protected_build_arg() {
-    case "$1" in
-        RUST_IMAGE|RUST_VERSION|RUST_COMMIT|REDB_VERSION|REDB_COMMIT|ALIVE2_COMMIT|DEBIAN_SNAPSHOT|BUILD_ENVIRONMENT_ID)
-            return 0
-            ;;
-        *)
-            return 1
-            ;;
-    esac
-}
-
-expect_build_arg_value=false
-for option in "$@"; do
-    if [[ "${expect_build_arg_value}" == true ]]; then
-        build_arg_name="${option%%=*}"
-        if is_protected_build_arg "${build_arg_name}"; then
-            echo "build argument ${build_arg_name} is pinned by config/versions.env" >&2
-            exit 2
-        fi
-        expect_build_arg_value=false
-        continue
-    fi
-
-    case "${option}" in
-        --build-arg)
-            expect_build_arg_value=true
-            ;;
-        --build-arg=*)
-            build_arg="${option#--build-arg=}"
-            build_arg_name="${build_arg%%=*}"
-            if is_protected_build_arg "${build_arg_name}"; then
-                echo "build argument ${build_arg_name} is pinned by config/versions.env" >&2
-                exit 2
-            fi
-            ;;
-    esac
-done
+"${repo_root}/scripts/validate-build-options.sh" "$@"
 
 "${repo_root}/scripts/check.sh"
 
