@@ -33,6 +33,7 @@ for proof in "${proofs[@]}"; do
 
     if timeout --signal=KILL "${process_timeout_seconds}" \
         "${alive2_bin}" \
+        -root-only \
         "-smt-to:${smt_timeout_ms}" \
         "-max-mem:${memory_limit_mb}" \
         "${proof}" \
@@ -71,8 +72,8 @@ for proof in "${proofs[@]}"; do
     # verifier outcome rather than evidence that this negative control worked.
     first_error="$(sed -n '1p' "${stderr_path}")"
     case "${first_error}" in
-        "ERROR: Value mismatch for "?* | \
-            "ERROR: Target's return value is more undefined for "?*)
+        "ERROR: Value mismatch" | \
+            "ERROR: Target's return value is more undefined")
             ;;
         *)
             sed -n '1,160p' "${stdout_path}" >&2
@@ -101,29 +102,40 @@ for proof in "${proofs[@]}"; do
             phase = 2
             next
         }
-        /^i[0-9]+ %[A-Za-z0-9._-]+ = .+$/ {
-            if (phase != 2)
-                invalid = 1
-            model_count++
-            next
-        }
-        /^Source value: .+$/ {
-            if (phase != 2 || source_count++ != 0)
+        $0 == "Source:" {
+            if (phase != 2 || source_header_count++ != 0)
                 invalid = 1
             phase = 3
             next
         }
-        /^Target value: .+$/ {
-            if (phase != 3 || target_count++ != 0)
+        $0 == "Target:" {
+            if (phase != 3 || target_header_count++ != 0)
                 invalid = 1
             phase = 4
+            next
+        }
+        /^i[0-9]+ %[A-Za-z0-9._-]+ = .+$/ {
+            if (phase < 2 || phase > 4)
+                invalid = 1
+            next
+        }
+        /^Source value: .+$/ {
+            if (phase != 4 || source_count++ != 0)
+                invalid = 1
+            phase = 5
+            next
+        }
+        /^Target value: .+$/ {
+            if (phase != 5 || target_count++ != 0)
+                invalid = 1
+            phase = 6
             next
         }
         { invalid = 1 }
         END {
             exit !(invalid == 0 && error_count == 1 && example_count == 1 &&
-                model_count > 0 && source_count == 1 && target_count == 1 &&
-                phase == 4)
+                source_header_count == 1 && target_header_count == 1 &&
+                source_count == 1 && target_count == 1 && phase == 6)
         }
     ' "${stderr_path}"; then
         sed -n '1,160p' "${stdout_path}" >&2

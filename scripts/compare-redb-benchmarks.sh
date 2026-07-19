@@ -117,7 +117,7 @@ cpu_vendor="$(
 )"
 cpu_model="$(
     awk -F ':' '
-        $1 ~ /^[[:space:]]*(model name|Model|Hardware|Processor|uarch)[[:space:]]*$/ {
+        $1 ~ /^[[:space:]]*(model name|Model|Hardware|Processor|uarch|CPU part)[[:space:]]*$/ {
             value = $2
             sub(/^[[:space:]]+/, "", value)
             sub(/[[:space:]]+$/, "", value)
@@ -128,10 +128,8 @@ cpu_model="$(
         }
     ' "${cpuinfo_file}"
 )"
-[[ -n "${cpu_vendor}" ]] \
-    || fail "could not identify the CPU vendor from ${cpuinfo_file}"
-[[ -n "${cpu_model}" ]] \
-    || fail "could not identify the CPU model from ${cpuinfo_file}"
+[[ -n "${cpu_vendor}" ]] || cpu_vendor=unknown
+[[ -n "${cpu_model}" ]] || cpu_model=unknown
 
 monotonic_now_ns() {
     local value

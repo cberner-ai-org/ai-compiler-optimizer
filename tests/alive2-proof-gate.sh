@@ -16,6 +16,17 @@ cat > "${fake_alive}" <<'FAKE_ALIVE'
 #!/usr/bin/env bash
 set -euo pipefail
 
+root_only=false
+for argument in "$@"; do
+    if [[ "${argument}" == -root-only ]]; then
+        root_only=true
+    fi
+done
+if [[ "${root_only}" != true ]]; then
+    echo 'fake Alive2 requires -root-only' >&2
+    exit 2
+fi
+
 emit_counterexample() {
     proof="${*: -1}"
     printf 'Processing %s..\n\n' "${proof}"
@@ -25,12 +36,20 @@ emit_counterexample() {
     echo '=>'
     echo '  %result = add i8 %value, 2'
     echo
-    echo 'ERROR: Value mismatch for i8 %result' >&2
+    echo 'ERROR: Value mismatch' >&2
     echo >&2
     echo 'NOTE: The counterexample is unique.' >&2
     echo >&2
     echo 'Example:' >&2
-    echo 'i8 %value = #x03 (3)' >&2
+    if [[ "${FAKE_ALIVE_RESULT}" != counterexample-model-less ]]; then
+        echo 'i8 %value = #x03 (3)' >&2
+    fi
+    echo >&2
+    echo 'Source:' >&2
+    echo 'i8 %result = #x04 (4)' >&2
+    echo >&2
+    echo 'Target:' >&2
+    echo 'i8 %result = #x05 (5)' >&2
     echo 'Source value: #x04 (4)' >&2
     echo 'Target value: #x05 (5)' >&2
 }
@@ -39,7 +58,7 @@ case "${FAKE_ALIVE_RESULT:?}" in
     correct)
         echo 'Transformation seems to be correct!'
         ;;
-    counterexample)
+    counterexample|counterexample-model-less)
         emit_counterexample "$@"
         ;;
     counterexample-warning)
@@ -100,6 +119,12 @@ ALIVE2_BIN="${fake_alive}" \
     >"${fixture_root}/negative.log" \
     2>&1
 [[ "$(wc -l < "${invocations}")" == 2 ]]
+
+FAKE_ALIVE_RESULT=counterexample-model-less \
+ALIVE2_BIN="${fake_alive}" \
+    "${negative_verifier}" "${fixture_root}/proofs" \
+    >"${fixture_root}/negative-model-less.log" \
+    2>&1
 
 for rejected in correct counterexample-warning counterexample-timeout counterexample-crash; do
     if FAKE_ALIVE_RESULT="${rejected}" \

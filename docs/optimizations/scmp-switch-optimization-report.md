@@ -71,6 +71,8 @@ br i1 %aco.equal, label %equal, label %greater
 The matcher is intentionally narrow. It requires all of the following:
 
 - the condition is `llvm.scmp` returning `i8` from two `i64` operands;
+- the comparison is defined in the switch block, preserving its execution
+  frequency when the switch is inside a loop;
 - the comparison has exactly one use;
 - the switch has exactly three cases, whose constants are exactly `-1`, `0`,
   and `1`;
@@ -126,16 +128,18 @@ Alive2 rejected 00-scmp-i64-switch-unfrozen.opt with a semantic mismatch
 ```
 
 The fail-closed positive runner applies a 10-second SMT deadline, a 30-second
-process deadline, and a 1 GiB memory limit. Diagnostics, counterexamples,
-timeouts, ambiguous success output, and unsupported behavior all fail the
-build. The negative runner checks every negative candidate independently and
-requires a zero-status Alive2 invocation containing exactly one failed
-transformation and one well-formed scalar counterexample. It retains stdout and
-stderr separately and rejects warnings, unsupported behavior, timeouts,
-crashes, extra diagnostics, malformed counterexamples, and accepted
-transformations. This prevents a mismatch phrase from masking an invalid
-solver outcome or one failing file from masking another candidate that Alive2
-accidentally accepts.
+process deadline, and a 1 GiB memory limit. It uses `-root-only` because the
+obligation is refinement of the routed result, not equality of source and
+target helper names. Diagnostics, counterexamples, timeouts, ambiguous success
+output, and unsupported behavior all fail the build. The negative runner checks
+every negative candidate independently and requires a zero-status Alive2
+invocation containing exactly one failed transformation and one well-formed
+scalar counterexample; input-model rows may be absent for constant-only
+obligations. It retains stdout and stderr separately and rejects warnings,
+unsupported behavior, timeouts, crashes, extra diagnostics, malformed
+counterexamples, and accepted transformations. This prevents a mismatch phrase
+from masking an invalid solver outcome or one failing file from masking another
+candidate that Alive2 accidentally accepts.
 
 The standalone proof represents the staged route with nested selections, while
 CFG construction is implemented through LLVM's C++ API. A structural
