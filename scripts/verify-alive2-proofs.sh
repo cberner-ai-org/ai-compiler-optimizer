@@ -33,6 +33,7 @@ for proof in "${proofs[@]}"; do
 
     if timeout --signal=KILL "${process_timeout_seconds}" \
         "${alive2_bin}" \
+        -root-only \
         "-smt-to:${smt_timeout_ms}" \
         "-max-mem:${memory_limit_mb}" \
         "${proof}" \

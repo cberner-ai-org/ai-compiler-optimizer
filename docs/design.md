@@ -91,10 +91,12 @@ resource limits remain inconclusive rather than becoming accepted transformation
 This prototype builds Alive2's declarative `alive` verifier without a second LLVM checkout. Each
 tracked `.opt` file contains exactly one local source-to-target refinement obligation. Poison and
 undef inputs remain enabled. Both SMT and process deadlines are enforced, solver memory is bounded,
-and any stderr output is a rejection. The proof-checker image proves each accepted obligation and
-checks every negative control independently during its build, then can rerun the embedded accepted
-obligations without network access. Negative controls are accepted only for a zero-status Alive2 run
-with exactly one well-formed semantic counterexample and no additional diagnostics.
+and any stderr output is a rejection. Alive2 checks only each obligation's root result, so source and
+target helper names do not become accidental proof requirements. The proof-checker image proves each
+accepted obligation and checks every negative control independently during its build, then can rerun
+the embedded accepted obligations without network access. Negative controls are accepted only for a
+zero-status Alive2 run with exactly one well-formed semantic counterexample and no additional
+diagnostics; input-model rows are optional for constant-only counterexamples.
 
 The current boundary proves the candidate specification, not arbitrary C++ pass code. The signed
 comparison implementation therefore has structural consistency and exact-CFG regressions tying it

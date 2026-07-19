@@ -9,6 +9,7 @@ unfrozen_regression="${repo_root}/tests/alive2/00-scmp-i64-switch-unfrozen.opt"
 
 for implementation_fragment in \
     'Intrinsic::scmp' \
+    'Compare->getParent() != Switch.getParent()' \
     'isIntegerTy(8)' \
     'isIntegerTy(64)' \
     'Value.isAllOnes()' \

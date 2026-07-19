@@ -30,7 +30,8 @@ class ThreeWayCompareSwitchPass
   static bool lower(llvm::SwitchInst &Switch) {
     auto *Compare = llvm::dyn_cast<llvm::IntrinsicInst>(Switch.getCondition());
     if (!Compare || Compare->getIntrinsicID() != llvm::Intrinsic::scmp ||
-        !Compare->hasOneUse() || !Compare->getType()->isIntegerTy(8) ||
+        Compare->getParent() != Switch.getParent() || !Compare->hasOneUse() ||
+        !Compare->getType()->isIntegerTy(8) ||
         !Compare->getArgOperand(0)->getType()->isIntegerTy(64) ||
         Compare->getArgOperand(1)->getType() !=
             Compare->getArgOperand(0)->getType() ||

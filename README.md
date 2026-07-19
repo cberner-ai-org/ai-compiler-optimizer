@@ -74,9 +74,10 @@ The `proof-checker` image builds the pinned
 [Alive2](https://github.com/AliveToolkit/alive2) `alive` verifier against Z3 packages from the pinned
 Debian snapshot. It checks each `optimizer/proofs/*.opt` refinement obligation with poison and undef
 inputs enabled, a 10-second SMT-query timeout, a 30-second process timeout, and a 1 GiB solver memory
-limit. A proof is accepted only when one transformation reports success and the verifier emits no
-diagnostics. Parse errors, type errors, counterexamples, warnings, timeouts, resource failures,
-unsupported semantics, and ambiguous multi-transformation files all fail closed. The image build
+limit. Proofs are checked with `-root-only`; a proof is accepted only when one transformation reports
+success and the verifier emits no diagnostics. Parse errors, type errors, counterexamples, warnings,
+timeouts, resource failures, unsupported semantics, and ambiguous multi-transformation files all
+fail closed. The image build
 also checks every negative candidate independently and requires exactly one clean Alive2 semantic
 counterexample; extra diagnostics or a nonzero solver status reject the negative control.
 

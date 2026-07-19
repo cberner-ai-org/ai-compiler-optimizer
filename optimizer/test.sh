@@ -23,6 +23,9 @@ signed_i64="$({
 signed_i64_undef="$({
     sed -n '/^define i32 @signed_i64_undef/,/^}/p' "${output}"
 })"
+hoisted_i64="$({
+    sed -n '/^define i32 @hoisted_i64/,/^}/p' "${output}"
+})"
 unsupported_i32="$({
     sed -n '/^define i32 @unsupported_i32/,/^}/p' "${output}"
 })"
@@ -72,6 +75,15 @@ grep --quiet --fixed-strings \
 grep --quiet --fixed-strings \
     'br i1 %aco.equal, label %equal, label %greater' \
     <<< "${signed_i64_undef}"
+
+grep --quiet --fixed-strings 'call i8 @llvm.scmp.i8.i64' \
+    <<< "${hoisted_i64}"
+grep --quiet --fixed-strings 'switch i8 %cmp, label %invalid' \
+    <<< "${hoisted_i64}"
+if grep --quiet --fixed-strings 'aco.scmp.nonless' <<< "${hoisted_i64}"; then
+    echo "optimizer test: transformed a comparison from a dominating block" >&2
+    exit 1
+fi
 
 grep --quiet --fixed-strings 'call i8 @llvm.scmp.i8.i32' \
     <<< "${unsupported_i32}"

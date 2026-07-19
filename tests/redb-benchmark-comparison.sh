@@ -45,8 +45,8 @@ printf '%s\t%s\n' \
 
 cpuinfo_file="${fixture_root}/cpuinfo"
 printf '%s\n' \
-    'vendor_id : QA Vendor' \
-    'model name : QA CPU 9000' \
+    'CPU implementer : 0x41' \
+    'CPU part : 0xd0c' \
     > "${cpuinfo_file}"
 
 results_file="${fixture_root}/results.tsv"
@@ -78,12 +78,29 @@ grep --quiet --fixed-strings $'round\tbaseline_s\toptimized_s\toptimized_speedup
 grep --quiet --fixed-strings $'mean\t' "${output_file}"
 grep --quiet --fixed-strings 'effective CPU list:' "${output_file}"
 grep --quiet --fixed-strings 'effective CPU count:' "${output_file}"
-grep --quiet --fixed-strings 'CPU vendor: QA Vendor' "${output_file}"
-grep --quiet --fixed-strings 'CPU model: QA CPU 9000' "${output_file}"
+grep --quiet --fixed-strings 'CPU vendor: 0x41' "${output_file}"
+grep --quiet --fixed-strings 'CPU model: 0xd0c' "${output_file}"
 grep --quiet --fixed-strings 'timing clock: clock_gettime(CLOCK_MONOTONIC)' "${output_file}"
 grep --quiet --fixed-strings \
     "comparison runner sha256: ${runner_sha256}" \
     "${output_file}"
+
+printf 'processor : 0\n' > "${cpuinfo_file}"
+printf '900\n1000\n1100\n1200\n' > "${clock_state}"
+: > "${order_file}"
+fallback_output="${fixture_root}/fallback-output"
+ACO_BASELINE_BENCHMARK="${fixture_root}/redb-benchmark-baseline" \
+ACO_OPTIMIZED_BENCHMARK="${fixture_root}/redb-benchmark-optimized" \
+ACO_BENCHMARK_RUNS=1 \
+ACO_BENCHMARK_RESULTS="${fixture_root}/fallback-results.tsv" \
+ACO_BENCHMARK_PROVENANCE="${provenance_file}" \
+ACO_MONOTONIC_CLOCK="${fake_clock}" \
+ACO_CPUINFO="${cpuinfo_file}" \
+ACO_TEST_CLOCK_STATE="${clock_state}" \
+ACO_TEST_ORDER_FILE="${order_file}" \
+    "${repo_root}/scripts/compare-redb-benchmarks.sh" > "${fallback_output}"
+grep --quiet --fixed-strings 'CPU vendor: unknown' "${fallback_output}"
+grep --quiet --fixed-strings 'CPU model: unknown' "${fallback_output}"
 
 mismatched_provenance="${fixture_root}/mismatched-provenance.tsv"
 sed \
