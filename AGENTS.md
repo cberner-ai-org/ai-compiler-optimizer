@@ -13,6 +13,24 @@ The compiler, Cargo registry, and benchmark target directories use named Podman 
 redb submodule is an immutable benchmark input and must remain clean; the Rust submodule is editable
 compiler source.
 
+## Disk space
+
+- Monitor free space on the filesystems backing the workspace, temporary directories, and container
+  storage before and after disk-intensive builds, tests, benchmarks, image operations, or large
+  dependency fetches. Recheck periodically while long-running work is producing data.
+- Keep at least 20% of each affected filesystem free at all times. Begin cleanup before free space
+  falls below 25% to preserve a safety margin. If free space is already below 20%, pause
+  disk-consuming work and restore the minimum before continuing.
+- Proactively prune stale, regenerable data as work progresses, including abandoned build
+  artifacts, obsolete compiler and benchmark caches, stopped containers, unused container images,
+  and expired temporary or test output. Do not wait for the filesystem to become critically full.
+- Before pruning shared caches or container storage, verify that no active process, mount, lock, or
+  in-progress build is using the data. Prefer narrowly scoped cleanup and verify free space again
+  afterward.
+- Never delete source files, uncommitted work, intentionally retained results, or data owned by an
+  active process. If safe stale-data cleanup cannot maintain 20% free space, stop and report the
+  blocker rather than risking user data or active work.
+
 ## Before completing a task
 
 Always run `make test`. After compiler or container changes, build the affected image and confirm its
