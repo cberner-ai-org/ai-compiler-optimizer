@@ -49,6 +49,24 @@ for index in "${!expected[@]}"; do
     }
 done
 
+mapfile -t midpoint_actual < <(
+    ACO_TOOLCHAIN_ROOT="${fixture_root}" \
+    ACO_OPTIMIZER_PIPELINE=aco-midpoint-only \
+        "${repo_root}/scripts/rustc-with-aco-passes.sh" --version
+)
+[[ "${midpoint_actual[1]}" == "-Cpasses=aco-midpoint-only" ]]
+
+if ACO_TOOLCHAIN_ROOT="${fixture_root}" \
+    ACO_OPTIMIZER_PIPELINE=unreviewed-pipeline \
+        "${repo_root}/scripts/rustc-with-aco-passes.sh" --version \
+        > "${fixture_root}/invalid-pipeline.log" 2>&1; then
+    echo "ACO rustc wrapper accepted an unreviewed pipeline" >&2
+    exit 1
+fi
+grep --quiet --fixed-strings \
+    'unsupported optimizer pipeline: unreviewed-pipeline' \
+    "${fixture_root}/invalid-pipeline.log"
+
 read_variant_environment() {
     local variant="$1"
 
@@ -57,25 +75,39 @@ read_variant_environment() {
     ACO_CARGO_TARGET_ROOT="${fixture_root}/target-root" \
         "${repo_root}/scripts/with-compiler-variant.sh" \
         "${variant}" \
-        bash -c 'printf "%s\n%s\n" "${RUSTC}" "${CARGO_TARGET_DIR}"'
+        bash -c 'printf "%s\n%s\n%s\n" "${RUSTC}" "${CARGO_TARGET_DIR}" "${ACO_OPTIMIZER_PIPELINE:-disabled}"'
 }
 
 mapfile -t baseline_environment < <(read_variant_environment baseline)
 mapfile -t optimized_environment < <(read_variant_environment optimized)
+mapfile -t midpoint_environment < <(read_variant_environment midpoint)
+mapfile -t slice_environment < <(read_variant_environment slice-comparison)
+mapfile -t key_environment < <(read_variant_environment key-comparisons)
 [[ "${baseline_environment[0]}" == "${fixture_root}/bin/rustc" ]]
 [[ "${baseline_environment[1]}" == "${fixture_root}/target-root/aco-baseline-"* ]]
+[[ "${baseline_environment[2]}" == disabled ]]
 [[ "${optimized_environment[0]}" == "${repo_root}/scripts/rustc-with-aco-passes.sh" ]]
 [[ "${optimized_environment[1]}" == "${fixture_root}/target-root/aco-optimized-"* ]]
+[[ "${optimized_environment[2]}" == aco-passes ]]
+[[ "${midpoint_environment[1]}" == "${fixture_root}/target-root/aco-midpoint-"* ]]
+[[ "${midpoint_environment[2]}" == aco-midpoint-only ]]
+[[ "${slice_environment[1]}" == "${fixture_root}/target-root/aco-slice-comparison-"* ]]
+[[ "${slice_environment[2]}" == aco-slice-comparison-only ]]
+[[ "${key_environment[1]}" == "${fixture_root}/target-root/aco-key-comparisons-"* ]]
+[[ "${key_environment[2]}" == aco-key-comparisons ]]
 [[ "${baseline_environment[1]}" != "${optimized_environment[1]}" ]]
 
 mv \
     "${fixture_root}/lib/libaco_optimizer.so" \
     "${fixture_root}/lib/libaco_optimizer.missing"
 read_variant_environment baseline > /dev/null
-if read_variant_environment optimized > "${fixture_root}/missing-plugin.log" 2>&1; then
-    echo "optimized compiler variant accepted a missing plugin" >&2
-    exit 1
-fi
+for plugin_variant in optimized midpoint slice-comparison key-comparisons; do
+    if read_variant_environment "${plugin_variant}" \
+        > "${fixture_root}/missing-plugin.log" 2>&1; then
+        echo "${plugin_variant} compiler variant accepted a missing plugin" >&2
+        exit 1
+    fi
+done
 grep --fixed-strings --quiet \
     "missing LLVM pass plugin: ${fixture_root}/lib/libaco_optimizer.so" \
     "${fixture_root}/missing-plugin.log"

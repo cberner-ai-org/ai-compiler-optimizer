@@ -81,7 +81,7 @@ gawk '
         order[11] = "removals"
         order[12] = "compaction"
 
-        print "benchmark\trounds\traw_samples_per_variant\tbaseline_mean_ms\toptimized_mean_ms\taggregate_speedup_percent\tpaired_median_speedup_percent\tpaired_95ci_low_percent\tpaired_95ci_high_percent\tpaired_familywise_95ci_low_percent\tpaired_familywise_95ci_high_percent"
+        print "benchmark\trounds\traw_samples_per_variant\tbaseline_mean_ms\toptimized_mean_ms\taggregate_speedup_percent\tpaired_mean_speedup_percent\tpaired_median_speedup_percent\tpaired_95ci_low_percent\tpaired_95ci_high_percent\tpaired_familywise_95ci_low_percent\tpaired_familywise_95ci_high_percent"
         for (row = 1; row <= 12; row++) {
             benchmark = order[row]
             expected = expected_counts[benchmark]
@@ -127,13 +127,14 @@ gawk '
 
             asort(paired)
             paired_median = paired[(rounds + 1) / 2]
-            printf "%s\t%d\t%d\t%.3f\t%.3f\t%+.3f\t%+.3f\t%+.3f\t%+.3f\t%+.3f\t%+.3f\n", \
+            printf "%s\t%d\t%d\t%.3f\t%.3f\t%+.3f\t%+.3f\t%+.3f\t%+.3f\t%+.3f\t%+.3f\t%+.3f\n", \
                 benchmark, \
                 rounds, \
                 rounds * expected, \
                 baseline_mean, \
                 optimized_mean, \
                 (baseline_mean / optimized_mean - 1) * 100, \
+                paired_mean, \
                 paired_median, \
                 paired_mean - confidence_radius, \
                 paired_mean + confidence_radius, \

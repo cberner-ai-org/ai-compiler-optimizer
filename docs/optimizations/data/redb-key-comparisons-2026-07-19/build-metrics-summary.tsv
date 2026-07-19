@@ -1,0 +1,6 @@
+variant	build_elapsed_ms	compile_time_change_percent	binary_size_bytes	code_size_change_bytes	code_size_change_percent
+baseline	489492	+0.000	59765240	+0	+0.000
+midpoint	270977	-44.641	59766664	+1424	+0.002
+slice-comparison	274344	-43.953	59782136	+16896	+0.028
+key-comparisons	276596	-43.493	59780952	+15712	+0.026
+optimized	290871	-40.577	59780952	+15712	+0.026

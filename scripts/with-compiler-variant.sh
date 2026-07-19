@@ -8,11 +8,11 @@ fail() {
 
 variant="${1:-}"
 case "${variant}" in
-    baseline|optimized)
+    baseline|optimized|midpoint|slice-comparison|key-comparisons)
         shift
         ;;
     *)
-        fail "first argument must be baseline or optimized"
+        fail "first argument must be baseline, optimized, midpoint, slice-comparison, or key-comparisons"
         ;;
 esac
 (( $# > 0 )) || fail "a command is required"
@@ -48,7 +48,22 @@ manifest_artifact_id="$(
 
 variant_artifacts=("${BASH_SOURCE[0]}")
 rustc_command="${runtime_rustc_path}"
-if [[ "${variant}" == optimized ]]; then
+optimizer_pipeline=""
+case "${variant}" in
+    optimized)
+        optimizer_pipeline=aco-passes
+        ;;
+    midpoint)
+        optimizer_pipeline=aco-midpoint-only
+        ;;
+    slice-comparison)
+        optimizer_pipeline=aco-slice-comparison-only
+        ;;
+    key-comparisons)
+        optimizer_pipeline=aco-key-comparisons
+        ;;
+esac
+if [[ -n "${optimizer_pipeline}" ]]; then
     [[ -s "${plugin_path}" ]] || fail "missing LLVM pass plugin: ${plugin_path}"
     [[ -x "${rustc_wrapper}" ]] || fail "missing rustc wrapper: ${rustc_wrapper}"
     variant_artifacts+=("${plugin_path}" "${rustc_wrapper}")
@@ -72,5 +87,10 @@ target_root="${ACO_CARGO_TARGET_ROOT:-${CARGO_TARGET_DIR:-target}}"
 export CARGO_TARGET_DIR="${target_root%/}/aco-${variant}-${variant_artifact_id}"
 export ACO_TOOLCHAIN_ROOT="${runtime_toolchain_root}"
 export RUSTC="${rustc_command}"
+if [[ -n "${optimizer_pipeline}" ]]; then
+    export ACO_OPTIMIZER_PIPELINE="${optimizer_pipeline}"
+else
+    unset ACO_OPTIMIZER_PIPELINE
+fi
 
 exec "$@"

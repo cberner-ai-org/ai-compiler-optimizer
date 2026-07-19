@@ -1,0 +1,315 @@
+redb baseline/slice-comparison comparison
+candidate mode: slice-comparison
+runs: 7
+machine: Linux 6.8.0-124-generic x86_64 GNU/Linux
+CPU vendor: AuthenticAMD
+CPU model: AMD EPYC-Milan Processor
+online CPU count: 8
+effective CPU list: 0-7
+effective CPU count: 8
+timing clock: clock_gettime(CLOCK_MONOTONIC)
+timing clock sha256: 3602256bd0c322a08d05533759ce3cc9d9ea3d4bbc84c619bef860d43267fec9
+comparison runner sha256: 5a430c8f1600d32e42e7aebaf81fc02d1d99464520445fc6091851995a8e1767
+provenance manifest sha256: 9617ccc0bb3e768d204051d61a41523909ee0514d88fdc49bbb212e27279d837
+provenance manifest_format: aco-benchmark-provenance-v2
+provenance build_environment_id: 857daf7a274f92fd8270b010e8856b4d1ea32c2e0fd3e1d9c012a9f3d623dab1
+provenance rust_image: docker.io/library/rust:1.97.1-bookworm@sha256:77fac8b98f9f46062bb680b6d25d5bcaabfc400143952ebc572e924bcbedc3fa
+provenance debian_snapshot: 20260713T000000Z
+provenance rust_version: 1.97.1
+provenance rust_commit: 8bab26f4f68e0e26f0bb7960be334d5b520ea452
+provenance compiler_manifest_format: aco-compiler-artifacts-v1
+provenance compiler_build_id: 98420cc36b8a361c9b8a87fea40f3181154d9aa08304ec6582b69ddf647189de
+provenance compiler_artifact_id: fbe353cca5525bf7a95e1c37e28f29169d3f58b23ef1fc740917ba958bab862c
+provenance rustc_sha256: 5a99d07a36bec5bbc41a55321ac7bcb3dcb9f926af240f8af45fc259ceae650f
+provenance rustc_driver_set_sha256: c54132cd7dab486063affb72285c2ad6bf4d7e79fcd6bdd548827364da43ffc6
+provenance llvm_library_set_sha256: ce5e29b0bc43793e26e116c9a8ae1860e80191544738cd70dc2f81e4bf7159e8
+provenance compiler_sysroot_sha256: 0c46276fda85c317ee64cbd2b99a96be28b9d9117f9c7ba3d9ef6cd65709db20
+provenance benchmark_candidate_variant: slice-comparison
+provenance optimizer_pipeline: aco-slice-comparison-only
+provenance optimizer_plugin_sha256: f53277f0f54c1847d89c4deb8fc37c0a89a140d7a7f984f0d6c2d8e7df97c0ce
+provenance optimizer_wrapper_sha256: 5cdf5b6fdb09aeb805ad6c1aa49479232cc943b919a7bafbbc39908f1e057c7d
+provenance compiler_variant_wrapper_sha256: f3ff855a7f219492ceb4bddb1322caada97020f4465fecbd6f3b9750f5b87c82
+provenance cargo_version: cargo 1.97.1 (c980f4866 2026-06-30)
+provenance cargo_sha256: 828980723df339d62434390e9fb8ef8831036583343ae2316b7ab5646b5c1953
+provenance cargo_proxy_sha256: 4acc9acc76d5079515b46346a485974457b5a79893cfb01112423c89aeb5aa10
+provenance monotonic_clock: clock_gettime(CLOCK_MONOTONIC)
+provenance monotonic_clock_sha256: 3602256bd0c322a08d05533759ce3cc9d9ea3d4bbc84c619bef860d43267fec9
+provenance comparison_runner_sha256: 5a430c8f1600d32e42e7aebaf81fc02d1d99464520445fc6091851995a8e1767
+provenance benchmark_mode_selector_sha256: 94664aa372fd929574db50b619e2da0c62ddc4a2eb57fe9980b752e0a85ba2c1
+provenance build_metrics_sha256: 61f6d0372a792db592ae504ef09598891c81ec63b7f223df63b10c046c465eab
+provenance redb_version: 4.1.0
+provenance redb_commit: 6ed1f981ba4deab0b2adbdd7bccb46ec409b2191
+provenance redb_lockfile_sha256: 5ed976a13822f0b0852d6c6801e9eed3966d041381eb5359797626fdc02fe18c
+provenance baseline_benchmark_sha256: 40bf2eb5690962e64dc3e7b42313d69b857b6ffab154b136c81524e06c0f3756
+provenance baseline_benchmark_size_bytes: 59765240
+provenance optimized_benchmark_sha256: 9f7e578a12985c8f89a78ebe621f5764c07e6cb8e62c6ecae937cac6ef1abbf1
+provenance optimized_benchmark_size_bytes: 59782184
+baseline sha256: 40bf2eb5690962e64dc3e7b42313d69b857b6ffab154b136c81524e06c0f3756
+optimized sha256: 9f7e578a12985c8f89a78ebe621f5764c07e6cb8e62c6ecae937cac6ef1abbf1
+
+[round 1/7] baseline (custom passes disabled)
+[baseline] redb: Bulk loaded 5000000 items in 14504ms
+[baseline] redb: Wrote 1000 individual items in 45ms
+[baseline] redb: Wrote 100 batches of 1000 items in 1583ms
+[baseline] redb: Wrote 50000 individual items in 3456ms, with nosync
+[baseline] redb: len() in 0ms
+[baseline] redb: Random read 1000000 items in 1663ms
+[baseline] redb: Random read 1000000 items in 1594ms
+[baseline] redb: Random range read 500000 x 10 elements in 1676ms
+[baseline] redb: Random range read 500000 x 10 elements in 1655ms
+[baseline] redb: Random read (4 threads) 5151000 items in 2119ms
+[baseline] redb: Random read (8 threads) 5151000 items in 1230ms
+[baseline] redb: Random read (16 threads) 5151000 items in 1255ms
+[baseline] redb: Random read (32 threads) 5151000 items in 1182ms
+[baseline] redb: Removed 2575500 items in 9530ms
+[baseline] redb: Compacted in 3667ms
+
+[round 1/7] optimized (custom passes enabled)
+[optimized] redb: Bulk loaded 5000000 items in 13847ms
+[optimized] redb: Wrote 1000 individual items in 44ms
+[optimized] redb: Wrote 100 batches of 1000 items in 1513ms
+[optimized] redb: Wrote 50000 individual items in 3373ms, with nosync
+[optimized] redb: len() in 0ms
+[optimized] redb: Random read 1000000 items in 1582ms
+[optimized] redb: Random read 1000000 items in 1523ms
+[optimized] redb: Random range read 500000 x 10 elements in 1627ms
+[optimized] redb: Random range read 500000 x 10 elements in 1556ms
+[optimized] redb: Random read (4 threads) 5151000 items in 2003ms
+[optimized] redb: Random read (8 threads) 5151000 items in 1152ms
+[optimized] redb: Random read (16 threads) 5151000 items in 1188ms
+[optimized] redb: Random read (32 threads) 5151000 items in 1157ms
+[optimized] redb: Removed 2575500 items in 9574ms
+[optimized] redb: Compacted in 3664ms
+
+[round 2/7] optimized (custom passes enabled)
+[optimized] redb: Bulk loaded 5000000 items in 13687ms
+[optimized] redb: Wrote 1000 individual items in 45ms
+[optimized] redb: Wrote 100 batches of 1000 items in 1508ms
+[optimized] redb: Wrote 50000 individual items in 3421ms, with nosync
+[optimized] redb: len() in 0ms
+[optimized] redb: Random read 1000000 items in 1523ms
+[optimized] redb: Random read 1000000 items in 1588ms
+[optimized] redb: Random range read 500000 x 10 elements in 1681ms
+[optimized] redb: Random range read 500000 x 10 elements in 1730ms
+[optimized] redb: Random read (4 threads) 5151000 items in 2189ms
+[optimized] redb: Random read (8 threads) 5151000 items in 1156ms
+[optimized] redb: Random read (16 threads) 5151000 items in 1141ms
+[optimized] redb: Random read (32 threads) 5151000 items in 1145ms
+[optimized] redb: Removed 2575500 items in 9671ms
+[optimized] redb: Compacted in 3626ms
+
+[round 2/7] baseline (custom passes disabled)
+[baseline] redb: Bulk loaded 5000000 items in 13869ms
+[baseline] redb: Wrote 1000 individual items in 45ms
+[baseline] redb: Wrote 100 batches of 1000 items in 1523ms
+[baseline] redb: Wrote 50000 individual items in 3477ms, with nosync
+[baseline] redb: len() in 0ms
+[baseline] redb: Random read 1000000 items in 1544ms
+[baseline] redb: Random read 1000000 items in 1561ms
+[baseline] redb: Random range read 500000 x 10 elements in 1593ms
+[baseline] redb: Random range read 500000 x 10 elements in 1590ms
+[baseline] redb: Random read (4 threads) 5151000 items in 2024ms
+[baseline] redb: Random read (8 threads) 5151000 items in 1141ms
+[baseline] redb: Random read (16 threads) 5151000 items in 1172ms
+[baseline] redb: Random read (32 threads) 5151000 items in 1147ms
+[baseline] redb: Removed 2575500 items in 9689ms
+[baseline] redb: Compacted in 3704ms
+
+[round 3/7] baseline (custom passes disabled)
+[baseline] redb: Bulk loaded 5000000 items in 13764ms
+[baseline] redb: Wrote 1000 individual items in 44ms
+[baseline] redb: Wrote 100 batches of 1000 items in 1510ms
+[baseline] redb: Wrote 50000 individual items in 3417ms, with nosync
+[baseline] redb: len() in 0ms
+[baseline] redb: Random read 1000000 items in 1534ms
+[baseline] redb: Random read 1000000 items in 1505ms
+[baseline] redb: Random range read 500000 x 10 elements in 1558ms
+[baseline] redb: Random range read 500000 x 10 elements in 1573ms
+[baseline] redb: Random read (4 threads) 5151000 items in 2055ms
+[baseline] redb: Random read (8 threads) 5151000 items in 1170ms
+[baseline] redb: Random read (16 threads) 5151000 items in 1212ms
+[baseline] redb: Random read (32 threads) 5151000 items in 1149ms
+[baseline] redb: Removed 2575500 items in 9638ms
+[baseline] redb: Compacted in 3663ms
+
+[round 3/7] optimized (custom passes enabled)
+[optimized] redb: Bulk loaded 5000000 items in 13879ms
+[optimized] redb: Wrote 1000 individual items in 44ms
+[optimized] redb: Wrote 100 batches of 1000 items in 1543ms
+[optimized] redb: Wrote 50000 individual items in 3387ms, with nosync
+[optimized] redb: len() in 0ms
+[optimized] redb: Random read 1000000 items in 1506ms
+[optimized] redb: Random read 1000000 items in 1494ms
+[optimized] redb: Random range read 500000 x 10 elements in 1555ms
+[optimized] redb: Random range read 500000 x 10 elements in 1549ms
+[optimized] redb: Random read (4 threads) 5151000 items in 2019ms
+[optimized] redb: Random read (8 threads) 5151000 items in 1186ms
+[optimized] redb: Random read (16 threads) 5151000 items in 1374ms
+[optimized] redb: Random read (32 threads) 5151000 items in 1334ms
+[optimized] redb: Removed 2575500 items in 9688ms
+[optimized] redb: Compacted in 3633ms
+
+[round 4/7] optimized (custom passes enabled)
+[optimized] redb: Bulk loaded 5000000 items in 13554ms
+[optimized] redb: Wrote 1000 individual items in 45ms
+[optimized] redb: Wrote 100 batches of 1000 items in 1491ms
+[optimized] redb: Wrote 50000 individual items in 3481ms, with nosync
+[optimized] redb: len() in 0ms
+[optimized] redb: Random read 1000000 items in 1523ms
+[optimized] redb: Random read 1000000 items in 1606ms
+[optimized] redb: Random range read 500000 x 10 elements in 1651ms
+[optimized] redb: Random range read 500000 x 10 elements in 1706ms
+[optimized] redb: Random read (4 threads) 5151000 items in 2147ms
+[optimized] redb: Random read (8 threads) 5151000 items in 1217ms
+[optimized] redb: Random read (16 threads) 5151000 items in 1236ms
+[optimized] redb: Random read (32 threads) 5151000 items in 1416ms
+[optimized] redb: Removed 2575500 items in 10400ms
+[optimized] redb: Compacted in 3680ms
+
+[round 4/7] baseline (custom passes disabled)
+[baseline] redb: Bulk loaded 5000000 items in 14043ms
+[baseline] redb: Wrote 1000 individual items in 45ms
+[baseline] redb: Wrote 100 batches of 1000 items in 1537ms
+[baseline] redb: Wrote 50000 individual items in 3405ms, with nosync
+[baseline] redb: len() in 0ms
+[baseline] redb: Random read 1000000 items in 1550ms
+[baseline] redb: Random read 1000000 items in 1541ms
+[baseline] redb: Random range read 500000 x 10 elements in 1652ms
+[baseline] redb: Random range read 500000 x 10 elements in 1652ms
+[baseline] redb: Random read (4 threads) 5151000 items in 2225ms
+[baseline] redb: Random read (8 threads) 5151000 items in 1218ms
+[baseline] redb: Random read (16 threads) 5151000 items in 1222ms
+[baseline] redb: Random read (32 threads) 5151000 items in 1426ms
+[baseline] redb: Removed 2575500 items in 10841ms
+[baseline] redb: Compacted in 3907ms
+
+[round 5/7] baseline (custom passes disabled)
+[baseline] redb: Bulk loaded 5000000 items in 15031ms
+[baseline] redb: Wrote 1000 individual items in 46ms
+[baseline] redb: Wrote 100 batches of 1000 items in 1544ms
+[baseline] redb: Wrote 50000 individual items in 3481ms, with nosync
+[baseline] redb: len() in 0ms
+[baseline] redb: Random read 1000000 items in 1643ms
+[baseline] redb: Random read 1000000 items in 1622ms
+[baseline] redb: Random range read 500000 x 10 elements in 2017ms
+[baseline] redb: Random range read 500000 x 10 elements in 1898ms
+[baseline] redb: Random read (4 threads) 5151000 items in 2252ms
+[baseline] redb: Random read (8 threads) 5151000 items in 1544ms
+[baseline] redb: Random read (16 threads) 5151000 items in 1340ms
+[baseline] redb: Random read (32 threads) 5151000 items in 1514ms
+[baseline] redb: Removed 2575500 items in 9746ms
+[baseline] redb: Compacted in 3878ms
+
+[round 5/7] optimized (custom passes enabled)
+[optimized] redb: Bulk loaded 5000000 items in 14483ms
+[optimized] redb: Wrote 1000 individual items in 46ms
+[optimized] redb: Wrote 100 batches of 1000 items in 1701ms
+[optimized] redb: Wrote 50000 individual items in 3674ms, with nosync
+[optimized] redb: len() in 0ms
+[optimized] redb: Random read 1000000 items in 1984ms
+[optimized] redb: Random read 1000000 items in 1815ms
+[optimized] redb: Random range read 500000 x 10 elements in 1720ms
+[optimized] redb: Random range read 500000 x 10 elements in 1755ms
+[optimized] redb: Random read (4 threads) 5151000 items in 2177ms
+[optimized] redb: Random read (8 threads) 5151000 items in 1356ms
+[optimized] redb: Random read (16 threads) 5151000 items in 1172ms
+[optimized] redb: Random read (32 threads) 5151000 items in 1160ms
+[optimized] redb: Removed 2575500 items in 11995ms
+[optimized] redb: Compacted in 5432ms
+
+[round 6/7] optimized (custom passes enabled)
+[optimized] redb: Bulk loaded 5000000 items in 19957ms
+[optimized] redb: Wrote 1000 individual items in 49ms
+[optimized] redb: Wrote 100 batches of 1000 items in 2024ms
+[optimized] redb: Wrote 50000 individual items in 4485ms, with nosync
+[optimized] redb: len() in 0ms
+[optimized] redb: Random read 1000000 items in 1862ms
+[optimized] redb: Random read 1000000 items in 1868ms
+[optimized] redb: Random range read 500000 x 10 elements in 1873ms
+[optimized] redb: Random range read 500000 x 10 elements in 1693ms
+[optimized] redb: Random read (4 threads) 5151000 items in 2185ms
+[optimized] redb: Random read (8 threads) 5151000 items in 1227ms
+[optimized] redb: Random read (16 threads) 5151000 items in 1240ms
+[optimized] redb: Random read (32 threads) 5151000 items in 2494ms
+[optimized] redb: Removed 2575500 items in 12661ms
+[optimized] redb: Compacted in 5184ms
+
+[round 6/7] baseline (custom passes disabled)
+[baseline] redb: Bulk loaded 5000000 items in 17364ms
+[baseline] redb: Wrote 1000 individual items in 45ms
+[baseline] redb: Wrote 100 batches of 1000 items in 1603ms
+[baseline] redb: Wrote 50000 individual items in 3442ms, with nosync
+[baseline] redb: len() in 0ms
+[baseline] redb: Random read 1000000 items in 1792ms
+[baseline] redb: Random read 1000000 items in 1835ms
+[baseline] redb: Random range read 500000 x 10 elements in 1724ms
+[baseline] redb: Random range read 500000 x 10 elements in 1682ms
+[baseline] redb: Random read (4 threads) 5151000 items in 2147ms
+[baseline] redb: Random read (8 threads) 5151000 items in 1222ms
+[baseline] redb: Random read (16 threads) 5151000 items in 1305ms
+[baseline] redb: Random read (32 threads) 5151000 items in 1262ms
+[baseline] redb: Removed 2575500 items in 10736ms
+[baseline] redb: Compacted in 3898ms
+
+[round 7/7] baseline (custom passes disabled)
+[baseline] redb: Bulk loaded 5000000 items in 14415ms
+[baseline] redb: Wrote 1000 individual items in 45ms
+[baseline] redb: Wrote 100 batches of 1000 items in 1703ms
+[baseline] redb: Wrote 50000 individual items in 3494ms, with nosync
+[baseline] redb: len() in 0ms
+[baseline] redb: Random read 1000000 items in 1942ms
+[baseline] redb: Random read 1000000 items in 1962ms
+[baseline] redb: Random range read 500000 x 10 elements in 1804ms
+[baseline] redb: Random range read 500000 x 10 elements in 1815ms
+[baseline] redb: Random read (4 threads) 5151000 items in 2187ms
+[baseline] redb: Random read (8 threads) 5151000 items in 1210ms
+[baseline] redb: Random read (16 threads) 5151000 items in 1197ms
+[baseline] redb: Random read (32 threads) 5151000 items in 1188ms
+[baseline] redb: Removed 2575500 items in 10140ms
+[baseline] redb: Compacted in 3885ms
+
+[round 7/7] optimized (custom passes enabled)
+[optimized] redb: Bulk loaded 5000000 items in 14754ms
+[optimized] redb: Wrote 1000 individual items in 44ms
+[optimized] redb: Wrote 100 batches of 1000 items in 1525ms
+[optimized] redb: Wrote 50000 individual items in 3426ms, with nosync
+[optimized] redb: len() in 0ms
+[optimized] redb: Random read 1000000 items in 1754ms
+[optimized] redb: Random read 1000000 items in 1659ms
+[optimized] redb: Random range read 500000 x 10 elements in 1688ms
+[optimized] redb: Random range read 500000 x 10 elements in 1673ms
+[optimized] redb: Random read (4 threads) 5151000 items in 2026ms
+[optimized] redb: Random read (8 threads) 5151000 items in 1171ms
+[optimized] redb: Random read (16 threads) 5151000 items in 1198ms
+[optimized] redb: Random read (32 threads) 5151000 items in 1154ms
+[optimized] redb: Removed 2575500 items in 10375ms
+[optimized] redb: Compacted in 3888ms
+
+round	baseline_s	optimized_s	optimized_speedup_percent
+1	51.456	50.255	+2.39%
+2	50.419	50.460	-0.08%
+3	50.185	50.519	-0.66%
+4	52.571	51.532	+2.02%
+5	54.140	57.092	-5.17%
+6	56.318	66.022	-14.70%
+7	53.446	52.635	+1.54%
+mean	52.648	54.073	-2.64%
+
+phase	occurrence	baseline_mean_ms	optimized_mean_ms	optimized_speedup_percent
+Bulk loaded 5000000 items	1	14712.9	14880.1	-1.12%
+Wrote 1000 individual items	1	45.0	45.3	-0.63%
+Wrote 100 batches of 1000 items	1	1571.9	1615.0	-2.67%
+Wrote 50000 individual items	1	3453.1	3606.7	-4.26%
+len()	1	0.0	0.0	+0.00%
+Random read 1000000 items	1	1666.9	1676.3	-0.56%
+Random read 1000000 items	2	1660.0	1650.4	+0.58%
+Random range read 500000 x 10 elements	1	1717.7	1685.0	+1.94%
+Random range read 500000 x 10 elements	2	1695.0	1666.0	+1.74%
+Random read (4 threads) 5151000 items	1	2144.1	2106.6	+1.78%
+Random read (8 threads) 5151000 items	1	1247.9	1209.3	+3.19%
+Random read (16 threads) 5151000 items	1	1243.3	1221.3	+1.80%
+Random read (32 threads) 5151000 items	1	1266.9	1408.6	-10.06%
+Removed 2575500 items	1	10045.7	10623.4	-5.44%
+Compacted	1	3800.3	4158.1	-8.61%
+raw results: /results/total-times.tsv
+raw phase results: /results/phases.tsv

@@ -25,67 +25,6 @@ RUN sed --in-place \
         'URIs: http://deb.debian.org/' \
         /etc/apt/sources.list.d/debian.sources
 
-FROM pinned-bookworm AS alive2-builder
-
-ARG ALIVE2_COMMIT
-ENV ALIVE2_COMMIT=${ALIVE2_COMMIT}
-
-RUN apt-get -o Acquire::Check-Valid-Until=false update \
-    && apt-get install --yes --no-install-recommends \
-        cmake \
-        libz3-dev \
-        ninja-build \
-        re2c \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /usr/src/alive2
-COPY third_party/alive2/ ./
-COPY scripts/alive2-git-version.sh /usr/local/bin/alive2-git-version
-
-RUN cmake \
-        -S . \
-        -B /tmp/alive2-build \
-        -G Ninja \
-        -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX=/opt/alive2 \
-        -DGIT_EXECUTABLE=/usr/local/bin/alive2-git-version \
-    && cmake --build /tmp/alive2-build --target alive alive-jobserver \
-    && cmake --install /tmp/alive2-build \
-    && /opt/alive2/bin/alive --version 2>&1 \
-        | grep --fixed-strings "version ${ALIVE2_COMMIT}"
-
-FROM pinned-bookworm AS proof-checker
-
-ARG RUST_IMAGE
-ARG ALIVE2_COMMIT
-ARG DEBIAN_SNAPSHOT
-ARG BUILD_ENVIRONMENT_ID
-
-LABEL org.opencontainers.image.title="Alive2 proof checker" \
-      org.opencontainers.image.description="Pinned Alive2 refinement checker for optimizer candidates" \
-      org.opencontainers.image.base.name="${RUST_IMAGE}" \
-      org.cberner-ai.ai-compiler-optimizer.alive2-commit="${ALIVE2_COMMIT}" \
-      org.cberner-ai.ai-compiler-optimizer.debian-snapshot="${DEBIAN_SNAPSHOT}" \
-      org.cberner-ai.ai-compiler-optimizer.build-environment-id="${BUILD_ENVIRONMENT_ID}"
-
-RUN apt-get -o Acquire::Check-Valid-Until=false update \
-    && apt-get install --yes --no-install-recommends libz3-4 \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=alive2-builder /opt/alive2/bin/alive /usr/local/bin/alive
-COPY scripts/verify-alive2-proofs.sh /usr/local/bin/verify-alive2-proofs
-COPY scripts/verify-alive2-negative-proofs.sh /usr/local/bin/verify-alive2-negative-proofs
-COPY optimizer/proofs/ /opt/aco/proofs/
-COPY tests/alive2/ /opt/aco/regressions/
-
-RUN set -eux; \
-    alive --version 2>&1 | grep --fixed-strings "version ${ALIVE2_COMMIT}"; \
-    verify-alive2-proofs /opt/aco/proofs; \
-    verify-alive2-negative-proofs /opt/aco/regressions
-
-ENTRYPOINT ["/usr/local/bin/verify-alive2-proofs"]
-CMD ["/opt/aco/proofs"]
-
 FROM pinned-bookworm AS rustc-builder
 
 ARG BUILD_ENVIRONMENT_ID
@@ -124,16 +63,82 @@ RUN --mount=type=cache,id=ai-compiler-optimizer-rust-${BUILD_ENVIRONMENT_ID},tar
     build_host="$(rustc --version --verbose | sed -n 's/^host: //p')"; \
     mkdir -p /opt/rust-custom; \
     cp -a "build/${build_host}/stage1/." /opt/rust-custom/; \
+    cp -a "build/${build_host}/ci-llvm" /opt/llvm; \
     LLVM_CONFIG="build/${build_host}/ci-llvm/bin/llvm-config" \
         OUTPUT=/tmp/libaco_optimizer.so \
         /usr/src/optimizer/build.sh; \
     OPT="build/${build_host}/ci-llvm/bin/opt" \
         PLUGIN=/tmp/libaco_optimizer.so \
-        bash /usr/src/optimizer/test.sh; \
+        LLVM_CONFIG="build/${build_host}/ci-llvm/bin/llvm-config" \
+        /usr/src/optimizer/test.sh; \
     install --mode 0755 \
         /tmp/libaco_optimizer.so \
         /opt/rust-custom/lib/libaco_optimizer.so; \
     printf '%s\n' "${rustc_source_id}" > /opt/rust-custom/.compiler-build-id
+
+FROM rustc-builder AS alive2-builder
+
+ARG RUST_IMAGE
+ARG ALIVE2_COMMIT
+ARG DEBIAN_SNAPSHOT
+ARG BUILD_ENVIRONMENT_ID
+
+RUN apt-get -o Acquire::Check-Valid-Until=false update \
+    && apt-get install --yes --no-install-recommends \
+        libz3-dev \
+        re2c \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /usr/src/alive2
+COPY third_party/alive2/ ./
+COPY patches/alive2-llvm22.patch /tmp/alive2-llvm22.patch
+COPY scripts/alive2-git-version.sh /usr/local/bin/alive2-git-version
+COPY scripts/build-alive2-with-llvm-config.sh /usr/local/bin/build-alive2-with-llvm-config
+
+RUN set -eux; \
+    llvm_config=/opt/llvm/bin/llvm-config; \
+    test -x "${llvm_config}"; \
+    git apply --check /tmp/alive2-llvm22.patch; \
+    git apply /tmp/alive2-llvm22.patch; \
+    build-alive2-with-llvm-config \
+        /usr/src/alive2 \
+        /tmp/alive2-build \
+        /opt/alive2 \
+        "${llvm_config}"; \
+    /opt/alive2/bin/alive --version 2>&1 \
+        | grep --fixed-strings "version ${ALIVE2_COMMIT}"; \
+    /opt/alive2/bin/alive-tv --help 2>&1 \
+        | grep --fixed-strings "version ${ALIVE2_COMMIT}"
+
+FROM alive2-builder AS proof-checker
+
+ARG RUST_IMAGE
+ARG ALIVE2_COMMIT
+ARG DEBIAN_SNAPSHOT
+ARG BUILD_ENVIRONMENT_ID
+
+LABEL org.opencontainers.image.title="Alive2 proof checker" \
+      org.opencontainers.image.description="Pinned Alive2 refinement checker for optimizer candidates" \
+      org.opencontainers.image.base.name="${RUST_IMAGE}" \
+      org.cberner-ai.ai-compiler-optimizer.alive2-commit="${ALIVE2_COMMIT}" \
+      org.cberner-ai.ai-compiler-optimizer.debian-snapshot="${DEBIAN_SNAPSHOT}" \
+      org.cberner-ai.ai-compiler-optimizer.build-environment-id="${BUILD_ENVIRONMENT_ID}"
+
+COPY scripts/verify-alive2-proofs.sh /usr/local/bin/verify-alive2-proofs
+COPY scripts/verify-alive2-negative-proofs.sh /usr/local/bin/verify-alive2-negative-proofs
+COPY optimizer/proofs/ /opt/aco/proofs/
+COPY tests/alive2/ /opt/aco/regressions/
+
+RUN set -eux; \
+    ln -s /opt/alive2/bin/alive /usr/local/bin/alive; \
+    ln -s /opt/alive2/bin/alive-tv /usr/local/bin/alive-tv; \
+    alive --version 2>&1 | grep --fixed-strings "version ${ALIVE2_COMMIT}"; \
+    alive-tv --help 2>&1 | grep --fixed-strings "version ${ALIVE2_COMMIT}"; \
+    verify-alive2-proofs /opt/aco/proofs; \
+    verify-alive2-negative-proofs /opt/aco/regressions
+
+ENTRYPOINT ["/usr/local/bin/verify-alive2-proofs"]
+CMD ["/opt/aco/proofs"]
 
 FROM pinned-bookworm AS toolchain
 
@@ -180,14 +185,27 @@ RUN set -eux; \
         --edition 2024 \
         -O \
         /tmp/toolchain_smoke.rs \
-        -o /tmp/toolchain-smoke-optimized \
+        --emit=llvm-ir \
+        -o /tmp/toolchain-smoke-optimized.ll \
         2> /tmp/aco-optimizer-trace; \
-    grep --fixed-strings "aco-keyhole: ran on" /tmp/aco-optimizer-trace; \
+    grep --fixed-strings "aco.memcmp.check" /tmp/toolchain-smoke-optimized.ll; \
+    grep --extended-regexp \
+        'aco-keyhole: transformed 0 slice compare\(s\), [1-9][0-9]* generic memcmp call\(s\)' \
+        /tmp/aco-optimizer-trace; \
+    /usr/local/bin/rustc-with-aco-passes \
+        --edition 2024 \
+        -O \
+        /tmp/toolchain_smoke.rs \
+        -o /tmp/toolchain-smoke-optimized \
+        2> /tmp/aco-optimizer-build-stderr; \
+    test ! -s /tmp/aco-optimizer-build-stderr; \
     /tmp/toolchain-smoke-optimized; \
     rm \
+        /tmp/aco-optimizer-build-stderr \
         /tmp/aco-optimizer-trace \
         /tmp/toolchain-smoke-baseline \
         /tmp/toolchain-smoke-optimized \
+        /tmp/toolchain-smoke-optimized.ll \
         /tmp/toolchain_smoke.rs
 
 # Cargo must remain fresh for unchanged inputs, while relevant compiler,
@@ -220,6 +238,8 @@ COPY scripts/select-cargo-executable.sh /usr/local/bin/select-cargo-executable
 COPY scripts/build-redb-benchmark.sh /usr/local/bin/build-redb-benchmark
 COPY scripts/write-benchmark-provenance.sh /usr/local/bin/write-benchmark-provenance
 COPY scripts/compare-redb-benchmarks.sh /usr/local/bin/compare-redb-benchmarks
+COPY scripts/select-redb-benchmark-mode.sh /usr/local/bin/select-redb-benchmark-mode
+COPY scripts/summarize-redb-build-metrics.sh /usr/local/bin/summarize-redb-build-metrics
 COPY scripts/verify-redb-variant-traces.sh /usr/local/bin/verify-redb-variant-traces
 COPY tools/monotonic-clock.c /tmp/monotonic-clock.c
 
@@ -265,13 +285,96 @@ RUN --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local
         /tmp/redb-optimized-ir-probe-target \
         /tmp/redb-optimized-ir-probe-trace \
         /usr/src/third_party/redb; \
+    mkdir -p /usr/local/share/ai-compiler-optimizer
+
+ENV ACO_BUILD_METRICS_FILE=/usr/local/share/ai-compiler-optimizer/redb-build-metrics.tsv \
+    ACO_CARGO_TARGET_ROOT=/tmp/aco-redb-measured-target
+
+RUN --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local/cargo/registry \
+    set -eux; \
+    test ! -e "${ACO_CARGO_TARGET_ROOT}"; \
     build-redb-benchmark \
         baseline \
         /usr/local/bin/redb-benchmark-baseline; \
-    build-redb-benchmark \
+    rm -rf -- "${ACO_CARGO_TARGET_ROOT}"
+
+RUN --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local/cargo/registry \
+    set -eux; \
+    test ! -e "${ACO_CARGO_TARGET_ROOT}"; \
+    ACO_OPTIMIZER_TRACE=1 build-redb-benchmark \
+        midpoint \
+        /usr/local/bin/redb-benchmark-midpoint \
+        2> /tmp/aco-redb-midpoint-trace; \
+    grep --extended-regexp \
+        'aco-keyhole: transformed 0 slice compare\(s\), 0 generic memcmp call\(s\), and [1-9][0-9]* ordered midpoint\(s\)' \
+        /tmp/aco-redb-midpoint-trace; \
+    rm /tmp/aco-redb-midpoint-trace; \
+    rm -rf -- "${ACO_CARGO_TARGET_ROOT}"
+
+RUN --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local/cargo/registry \
+    set -eux; \
+    test ! -e "${ACO_CARGO_TARGET_ROOT}"; \
+    ACO_OPTIMIZER_TRACE=1 build-redb-benchmark \
+        slice-comparison \
+        /usr/local/bin/redb-benchmark-slice-comparison \
+        2> /tmp/aco-redb-slice-comparison-trace; \
+    grep --extended-regexp \
+        'aco-keyhole: transformed [1-9][0-9]* slice compare\(s\), [0-9]+ generic memcmp call\(s\), and 0 ordered midpoint\(s\)' \
+        /tmp/aco-redb-slice-comparison-trace; \
+    rm /tmp/aco-redb-slice-comparison-trace; \
+    rm -rf -- "${ACO_CARGO_TARGET_ROOT}"
+
+RUN --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local/cargo/registry \
+    set -eux; \
+    test ! -e "${ACO_CARGO_TARGET_ROOT}"; \
+    ACO_OPTIMIZER_TRACE=1 build-redb-benchmark \
+        key-comparisons \
+        /usr/local/bin/redb-benchmark-key-comparisons \
+        2> /tmp/aco-redb-key-comparisons-trace; \
+    grep --extended-regexp \
+        'aco-keyhole: transformed [1-9][0-9]* slice compare\(s\)' \
+        /tmp/aco-redb-key-comparisons-trace; \
+    grep --extended-regexp \
+        'and [1-9][0-9]* ordered midpoint\(s\)' \
+        /tmp/aco-redb-key-comparisons-trace; \
+    rm /tmp/aco-redb-key-comparisons-trace; \
+    rm -rf -- "${ACO_CARGO_TARGET_ROOT}"
+
+RUN --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local/cargo/registry \
+    set -eux; \
+    test ! -e "${ACO_CARGO_TARGET_ROOT}"; \
+    ACO_OPTIMIZER_TRACE=1 build-redb-benchmark \
         optimized \
-        /usr/local/bin/redb-benchmark-optimized; \
+        /usr/local/bin/redb-benchmark-optimized \
+        2> /tmp/aco-redb-optimizer-trace; \
+    grep --extended-regexp \
+        'aco-keyhole: transformed [1-9][0-9]* slice compare\(s\), [0-9]+ generic memcmp call\(s\), and [1-9][0-9]* ordered midpoint\(s\)' \
+        /tmp/aco-redb-optimizer-trace; \
+    rm /tmp/aco-redb-optimizer-trace; \
+    rm -rf -- "${ACO_CARGO_TARGET_ROOT}"
+
+RUN set -eux; \
+    summarize-redb-build-metrics "${ACO_BUILD_METRICS_FILE}" \
+        > /usr/local/share/ai-compiler-optimizer/redb-build-metrics-summary.tsv; \
+    ACO_BENCHMARK_CANDIDATE_VARIANT=midpoint \
+    ACO_OPTIMIZER_PIPELINE_NAME=aco-midpoint-only \
+    ACO_OPTIMIZED_BENCHMARK=/usr/local/bin/redb-benchmark-midpoint \
+        write-benchmark-provenance \
+            /usr/local/share/ai-compiler-optimizer/benchmark-provenance-midpoint.tsv; \
+    ACO_BENCHMARK_CANDIDATE_VARIANT=slice-comparison \
+    ACO_OPTIMIZER_PIPELINE_NAME=aco-slice-comparison-only \
+    ACO_OPTIMIZED_BENCHMARK=/usr/local/bin/redb-benchmark-slice-comparison \
+        write-benchmark-provenance \
+            /usr/local/share/ai-compiler-optimizer/benchmark-provenance-slice-comparison.tsv; \
+    ACO_BENCHMARK_CANDIDATE_VARIANT=key-comparisons \
+    ACO_OPTIMIZER_PIPELINE_NAME=aco-key-comparisons \
+    ACO_OPTIMIZED_BENCHMARK=/usr/local/bin/redb-benchmark-key-comparisons \
+        write-benchmark-provenance \
+            /usr/local/share/ai-compiler-optimizer/benchmark-provenance-key-comparisons.tsv; \
     write-benchmark-provenance \
+        /usr/local/share/ai-compiler-optimizer/benchmark-provenance-optimized.tsv; \
+    cp \
+        /usr/local/share/ai-compiler-optimizer/benchmark-provenance-optimized.tsv \
         /usr/local/share/ai-compiler-optimizer/benchmark-provenance.tsv
 
 FROM pinned-bookworm AS redb-benchmark
@@ -298,20 +401,43 @@ COPY --from=redb-builder \
     /usr/local/bin/redb-benchmark-optimized \
     /usr/local/bin/redb-benchmark-optimized
 COPY --from=redb-builder \
+    /usr/local/bin/redb-benchmark-midpoint \
+    /usr/local/bin/redb-benchmark-midpoint
+COPY --from=redb-builder \
+    /usr/local/bin/redb-benchmark-slice-comparison \
+    /usr/local/bin/redb-benchmark-slice-comparison
+COPY --from=redb-builder \
+    /usr/local/bin/redb-benchmark-key-comparisons \
+    /usr/local/bin/redb-benchmark-key-comparisons
+COPY --from=redb-builder \
     /usr/local/bin/aco-monotonic-clock \
     /usr/local/bin/aco-monotonic-clock
 COPY --from=redb-builder \
-    /usr/local/share/ai-compiler-optimizer/benchmark-provenance.tsv \
-    /usr/local/share/ai-compiler-optimizer/benchmark-provenance.tsv
+    /usr/local/share/ai-compiler-optimizer/ \
+    /usr/local/share/ai-compiler-optimizer/
 COPY --from=redb-builder \
     /usr/local/bin/compare-redb-benchmarks \
     /usr/local/bin/compare-redb-benchmarks
+COPY --from=redb-builder \
+    /usr/local/bin/select-redb-benchmark-mode \
+    /usr/local/bin/select-redb-benchmark-mode
 
 WORKDIR /benchmark
 RUN set -eux; \
     test -s /usr/local/share/ai-compiler-optimizer/benchmark-provenance.tsv; \
     /usr/local/bin/aco-monotonic-clock | grep --extended-regexp '^[0-9]+$'; \
     ldd /usr/local/bin/redb-benchmark-baseline; \
-    ldd /usr/local/bin/redb-benchmark-optimized
+    for mode in optimized midpoint slice-comparison key-comparisons; do \
+        ldd "/usr/local/bin/redb-benchmark-${mode}"; \
+        if ACO_BENCHMARK_MODE="${mode}" ACO_BENCHMARK_RUNS=0 \
+            /usr/local/bin/select-redb-benchmark-mode \
+            > "/tmp/${mode}-selector-smoke" 2>&1; then \
+            exit 1; \
+        fi; \
+        grep --fixed-strings \
+            'ACO_BENCHMARK_RUNS must be a positive integer' \
+            "/tmp/${mode}-selector-smoke"; \
+        rm "/tmp/${mode}-selector-smoke"; \
+    done
 
-CMD ["/usr/local/bin/compare-redb-benchmarks"]
+CMD ["/usr/local/bin/select-redb-benchmark-mode"]

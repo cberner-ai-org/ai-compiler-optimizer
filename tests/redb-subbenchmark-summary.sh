@@ -36,7 +36,7 @@ done
 
 "${summarizer}" "${fixture}" > "${summary}"
 
-expected=$'random_range_reads\t7\t14\t100.000\t91.000\t+9.890\t+9.890\t+7.528\t+12.358\t+5.516\t+14.371'
+expected=$'random_range_reads\t7\t14\t100.000\t91.000\t+9.890\t+9.943\t+9.890\t+7.528\t+12.358\t+5.516\t+14.371'
 grep --quiet --fixed-strings --line-regexp "${expected}" "${summary}"
 [[ "$(wc -l < "${summary}")" == 13 ]]
 

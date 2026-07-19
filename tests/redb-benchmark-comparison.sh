@@ -12,7 +12,9 @@ printf '%s\n' \
     'variant="${0##*-}"' \
     'printf "%s\n" "${variant}" >> "${ACO_TEST_ORDER_FILE}"' \
     'sleep 0.02' \
-    'printf "%s fixture completed\n" "${variant}"' \
+    'printf "redb: Fixture phase in %sms\n" "$([[ "${variant}" == baseline ]] && echo 10 || echo 8)"' \
+    'printf "redb: Repeated phase in 4ms\n"' \
+    'printf "redb: Repeated phase in 5ms, with suffix\n"' \
     > "${fake_benchmark}"
 chmod 0755 "${fake_benchmark}"
 cp "${fake_benchmark}" "${fixture_root}/redb-benchmark-baseline"
@@ -25,6 +27,12 @@ fake_clock="${fixture_root}/monotonic-clock"
 printf '%s\n' \
     '#!/usr/bin/env bash' \
     'set -euo pipefail' \
+    'if [[ -n "${ACO_TEST_TIMING_EVENTS:-}" ]]; then' \
+    '    printf "clock\n" >> "${ACO_TEST_TIMING_EVENTS}"' \
+    'fi' \
+    'if [[ -n "${ACO_TEST_PHASE_COUNT_LOG:-}" ]]; then' \
+    '    wc -l < "${ACO_BENCHMARK_PHASE_RESULTS}" >> "${ACO_TEST_PHASE_COUNT_LOG}"' \
+    'fi' \
     'value="$(head -n 1 "${ACO_TEST_CLOCK_STATE}")"' \
     'tail -n +2 "${ACO_TEST_CLOCK_STATE}" > "${ACO_TEST_CLOCK_STATE}.next"' \
     'mv "${ACO_TEST_CLOCK_STATE}.next" "${ACO_TEST_CLOCK_STATE}"' \
@@ -32,6 +40,17 @@ printf '%s\n' \
     > "${fake_clock}"
 chmod 0755 "${fake_clock}"
 printf '100\n200\n300\n400\n500\n600\n700\n800\n' > "${clock_state}"
+
+real_mktemp="$(command -v mktemp)"
+mkdir "${fixture_root}/bin"
+printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -euo pipefail' \
+    'printf "mktemp\n" >> "${ACO_TEST_TIMING_EVENTS}"' \
+    "exec ${real_mktemp} \"\$@\"" \
+    > "${fixture_root}/bin/mktemp"
+chmod 0755 "${fixture_root}/bin/mktemp"
+
 clock_sha256="$(sha256sum "${fake_clock}" | awk '{print $1}')"
 runner_sha256="$(sha256sum "${repo_root}/scripts/compare-redb-benchmarks.sh" | awk '{print $1}')"
 provenance_file="${fixture_root}/benchmark-provenance.tsv"
@@ -50,18 +69,36 @@ printf '%s\n' \
     > "${cpuinfo_file}"
 
 results_file="${fixture_root}/results.tsv"
+phase_results_file="${fixture_root}/phase-results.tsv"
 order_file="${fixture_root}/order"
 output_file="${fixture_root}/output"
+timing_events="${fixture_root}/timing-events"
+phase_count_log="${fixture_root}/phase-count-log"
 ACO_BASELINE_BENCHMARK="${fixture_root}/redb-benchmark-baseline" \
 ACO_OPTIMIZED_BENCHMARK="${fixture_root}/redb-benchmark-optimized" \
 ACO_BENCHMARK_RUNS=2 \
 ACO_BENCHMARK_RESULTS="${results_file}" \
+ACO_BENCHMARK_PHASE_RESULTS="${phase_results_file}" \
 ACO_BENCHMARK_PROVENANCE="${provenance_file}" \
 ACO_MONOTONIC_CLOCK="${fake_clock}" \
 ACO_CPUINFO="${cpuinfo_file}" \
 ACO_TEST_CLOCK_STATE="${clock_state}" \
 ACO_TEST_ORDER_FILE="${order_file}" \
+ACO_TEST_TIMING_EVENTS="${timing_events}" \
+ACO_TEST_PHASE_COUNT_LOG="${phase_count_log}" \
+PATH="${fixture_root}/bin:${PATH}" \
     "${repo_root}/scripts/compare-redb-benchmarks.sh" > "${output_file}"
+
+expected_timing_events=$'mktemp\nclock\nclock\nmktemp\nclock\nclock\nmktemp\nclock\nclock\nmktemp\nclock\nclock'
+[[ "$(<"${timing_events}")" == "${expected_timing_events}" ]] || {
+    echo "benchmark timing did not bracket each process after output setup" >&2
+    exit 1
+}
+expected_phase_counts=$'1\n1\n4\n4\n7\n7\n10\n10'
+[[ "$(<"${phase_count_log}")" == "${expected_phase_counts}" ]] || {
+    echo "benchmark finish timestamp included phase extraction" >&2
+    exit 1
+}
 
 expected_order=$'baseline\noptimized\noptimized\nbaseline'
 actual_order="$(<"${order_file}")"
@@ -76,6 +113,15 @@ actual_order="$(<"${order_file}")"
 grep --quiet --fixed-strings $'round\tbaseline_s\toptimized_s\toptimized_speedup_percent' \
     "${output_file}"
 grep --quiet --fixed-strings $'mean\t' "${output_file}"
+grep --quiet --fixed-strings \
+    $'phase\toccurrence\tbaseline_mean_ms\toptimized_mean_ms\toptimized_speedup_percent' \
+    "${output_file}"
+grep --quiet --fixed-strings $'Fixture phase\t1\t10.0\t8.0\t+25.00%' \
+    "${output_file}"
+grep --quiet --fixed-strings $'Repeated phase\t2\t5.0\t5.0\t+0.00%' \
+    "${output_file}"
+[[ "$(wc -l < "${phase_results_file}")" == 13 ]] \
+    || { echo "comparison did not record every phase sample" >&2; exit 1; }
 grep --quiet --fixed-strings 'effective CPU list:' "${output_file}"
 grep --quiet --fixed-strings 'effective CPU count:' "${output_file}"
 grep --quiet --fixed-strings 'CPU vendor: 0x41' "${output_file}"
