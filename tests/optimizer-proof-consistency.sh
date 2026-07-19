@@ -7,6 +7,7 @@ proof="${repo_root}/optimizer/proofs/scmp-i64-switch-classification.opt"
 undef_proof="${repo_root}/optimizer/proofs/scmp-i64-switch-undef-correlation.opt"
 unfrozen_regression="${repo_root}/tests/alive2/00-scmp-i64-switch-unfrozen.opt"
 memcmp_proof="${repo_root}/optimizer/proofs/memcmp-first-byte.srctgt.ll"
+memcmp_contract_proof="${repo_root}/optimizer/proofs/memcmp-first-byte-call-attrs.srctgt.ll"
 
 for implementation_fragment in \
     'Intrinsic::scmp' \
@@ -36,6 +37,19 @@ for implementation_fragment in \
     'isProvenMemcmpCall' \
     'hasUnsupportedCallControlContract(Call)' \
     'hasUnsupportedCallControlContract(*Ordering)' \
+    'hasUnsupportedMemcmpAttributeContract(Call, *Callee)' \
+    'Call.getAttributes().getParamAttrs(0)' \
+    'Call.getAttributes().getParamAttrs(1)' \
+    'Call.getAttributes().getParamAttrs(2)' \
+    'HasNoCallParameterAttributes' \
+    'HasProvenNonnullAttributes' \
+    'Callee.getAttributes().getParamAttrs(Index)' \
+    'llvm::Attribute::NonNull' \
+    'llvm::Attribute::Captures' \
+    'Call.getAttributes().getMemoryEffects()' \
+    'Callee->getMemoryEffects()' \
+    'llvm::MemoryEffects::Location::ArgMem' \
+    'llvm::isRefSet' \
     'Call.isConvergent()' \
     'Call.isMustTailCall()' \
     'Call.getTailCallKind() == llvm::CallInst::TCK_NoTail' \
@@ -51,6 +65,18 @@ for implementation_fragment in \
     'RightPointer->getAddressSpace() == 0'; do
     rg --quiet --fixed-strings "${implementation_fragment}" "${implementation}" || {
         echo "optimizer proof consistency: memcmp matcher is missing ${implementation_fragment}" >&2
+        exit 1
+    }
+done
+
+for proof_fragment in \
+    'define i32 @src(ptr captures(none) %left' \
+    '%result = call i32 @memcmp(ptr nonnull %left, ptr nonnull %right, i64 %length)' \
+    'define i32 @tgt(ptr captures(none) %left' \
+    '%slow_result = call i32 @memcmp(ptr nonnull %left, ptr nonnull %right, i64 %length_frozen)' \
+    'declare i32 @memcmp(ptr captures(none), ptr captures(none), i64) memory(argmem: read)'; do
+    rg --quiet --fixed-strings "${proof_fragment}" "${memcmp_contract_proof}" || {
+        echo "optimizer proof consistency: memcmp contract proof is missing ${proof_fragment}" >&2
         exit 1
     }
 done

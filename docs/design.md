@@ -115,8 +115,12 @@ ABI/type proof domain: only address-space-zero 64-bit pointers, an `i64` length,
 call the rewrite relocates across new control flow. Both calls must use the default C calling
 convention and reject operand bundles, convergence, mandatory or prohibited tail placement, and
 other control-sensitive function attributes. An ordinary `tail` marker is only a discardable hint;
-the rewrite clears it from either relocated call. Structural consistency checks and verifier-backed
-adversarial fixtures bind these fail-closed checks to the tracked obligation.
+the rewrite clears it from either relocated call. Call and declaration memory effects must permit
+reads through argument pointers. The unannotated call-site shape uses the generic obligation; a
+dedicated obligation models Rust's exact shape with `nonnull` on both pointer operands. All other
+return and parameter contracts are rejected, and the declaration may retain only its capture
+contract. Structural consistency checks and verifier-backed adversarial fixtures bind these
+fail-closed checks to the tracked obligations.
 
 ## Safety model
 

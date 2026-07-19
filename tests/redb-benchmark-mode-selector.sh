@@ -32,9 +32,16 @@ for mode in optimized midpoint slice-comparison key-comparisons; do
         benchmark_mode_selector_sha256 "${selector_sha256}" \
         > "${fixture_root}/share/benchmark-provenance-${mode}.tsv"
 done
+printf '#!/usr/bin/env bash\nexit 0\n' \
+    > "${fixture_root}/bin/redb-benchmark-baseline"
+printf '#!/usr/bin/env bash\nexit 0\n' \
+    > "${fixture_root}/bin/aco-monotonic-clock"
+chmod 0755 \
+    "${fixture_root}/bin/redb-benchmark-baseline" \
+    "${fixture_root}/bin/aco-monotonic-clock"
 printf '%s\n' \
     '#!/usr/bin/env bash' \
-    'printf "%s\n%s\n%s\n" "${ACO_OPTIMIZED_BENCHMARK}" "${ACO_BENCHMARK_PROVENANCE}" "${ACO_BENCHMARK_CANDIDATE_LABEL}"' \
+    'printf "%s\n%s\n%s\n%s\n%s\n" "${ACO_OPTIMIZED_BENCHMARK}" "${ACO_BASELINE_BENCHMARK}" "${ACO_MONOTONIC_CLOCK}" "${ACO_BENCHMARK_PROVENANCE}" "${ACO_BENCHMARK_CANDIDATE_LABEL}"' \
     > "${fixture_root}/bin/compare-redb-benchmarks"
 chmod 0755 "${fixture_root}/bin/compare-redb-benchmarks"
 
@@ -45,6 +52,8 @@ output="$(
         "${selector}"
 )"
 expected="${fixture_root}/bin/redb-benchmark-midpoint
+${fixture_root}/bin/redb-benchmark-baseline
+${fixture_root}/bin/aco-monotonic-clock
 ${fixture_root}/share/benchmark-provenance-midpoint.tsv
 midpoint"
 [[ "${output}" == "${expected}" ]]

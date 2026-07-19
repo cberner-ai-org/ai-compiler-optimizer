@@ -130,7 +130,12 @@ little-endian 64-bit address-space-zero pointers and an `i64` length.
 both calls relocated by specialization. It rejects non-C conventions, operand
 bundles, convergence, mandatory or prohibited tail placement, and
 control-sensitive function attributes. An ordinary `tail` marker is only a
-discardable hint and is cleared from either relocated call.
+discardable hint and is cleared from either relocated call. Memory effects on
+both the call and declaration must permit argument-memory reads. One refinement
+obligation covers calls without return or parameter contracts; a second covers
+Rust's exact call shape with `nonnull` on both pointer operands. Every other
+call-site return or parameter contract is rejected, and the declaration may
+carry only its capture parameter contract.
 
 redb's hot slice-order shape is more specific:
 
@@ -176,6 +181,8 @@ The keyhole obligations are:
   under the matcher's unsigned ordering precondition;
 - `memcmp-first-byte.srctgt.ll`: complete zero/equal/unequal expansion,
   including freezes, loads, memory behavior, and the libc model;
+- `memcmp-first-byte-call-attrs.srctgt.ll`: the same expansion with Rust's exact
+  two-pointer `nonnull` call contract and `argmem: read` effects;
 - `slice-order-zero-after-memcmp-expansion.srctgt.ll`: zero frozen length;
 - `slice-order-equal-after-memcmp-expansion.srctgt.ll`: nonzero length and
   equal frozen first bytes; and
@@ -187,7 +194,7 @@ the specialized fold after the independently proved generic expansion. The
 equivalent monolithic query exceeded the deadline and was rejected; it is not
 an accepted proof.
 
-The complete suite has eight accepted obligations: these five, two signed
+The complete suite has nine accepted obligations: these six, two signed
 comparison obligations, and the identity gate smoke. The final `make prove`
 completed every obligation without timeout or diagnostic and still rejected
 the known-inequivalent and unfrozen negative controls.
@@ -207,22 +214,29 @@ the known-inequivalent and unfrozen negative controls.
   `llvm.scmp` calls. The public plugin runs it under `-verify-each`, leaves the
   three contracted ordering chains unspecialized, and specializes the ordinary
   hint only after clearing it.
+- The argument- and memory-contract fixtures run under `-verify-each`, reject
+  partial `nonnull`, `noundef`, dereferenceability, alignment, and incompatible
+  call/declaration memory effects, and retain the exact two-pointer `nonnull`
+  and `argmem: read` cases.
 - `optimizer/test.sh` tests all four pipelines through the real LLVM 22 plugin
   and a linked structural driver, runs each keyhole pipeline twice, checks exact
   transform counts, preserves the near miss, and checks idempotence.
 - Wrapper tests check the strict pipeline allowlist, per-mode environment, and
   separate artifact identities.
 - Selector and provenance tests bind each runtime mode to its executable and
-  exact pipeline, and reject unknown, missing, or mismatched mappings.
-- The toolchain image compiles and runs a Rust `memcmp` smoke with and without
-  the plugin and inspects optimized LLVM IR for the generic fast path.
+  exact pipeline, propagate one relocated binary root to the candidate,
+  baseline, and monotonic clock, and reject unknown, missing, or mismatched
+  mappings.
+- The toolchain image compiles and runs a Rust slice-ordering smoke with and
+  without the plugin and inspects optimized LLVM IR for the specialized fast
+  path.
 - The redb image ran all 37 library tests independently in baseline and
   optimized modes. Both sets passed.
 - The benchmark image linked all five artifacts, checked all mode-specific
   traces, and rejected invalid selector invocations before being tagged.
-- Final hardened image `1471fb6f84d8...` completed a one-pair runtime smoke
+- Final hardened image `837761600f5e...` completed a one-pair runtime smoke
   with exact `optimized` to `aco-passes` provenance, clean exits, and all 15
-  phase rows. Its 51.917 s versus 51.321 s process-only sample is a plumbing
+  phase rows. Its 53.175 s versus 53.774 s process-only sample is a plumbing
   check, not statistical performance evidence.
 - Statistical regressions validate exact pointwise sub-benchmark and
   12-endpoint Bonferroni intervals, reproduce the legacy seven-pair whole-run
@@ -311,10 +325,10 @@ runtime artifact; collecting a duplicate optimized block would add no binary
 contrast.
 
 Final hardened clean-target image
-`1471fb6f84d8ee355ae49bb398e7a44d8a5d7ba1219b9999bf492d9849e4cdcc`
-retained the baseline `40bf2eb5...` and midpoint `2c9c6fe6...` hashes, but the
-slice control-contract fix changed slice-only from `9f7e578a...` to
-`85a5acf0...` and combined/aggregate from `49f63153...` to `eaaaa0ab...`.
+`837761600f5e92586804a2807f89ca22233c5f1e28e4971bac34f860bf68e8c7`
+retained the baseline `40bf2eb5...` and midpoint `2c9c6fe6...` hashes. The final
+attribute- and memory-contract boundary produced slice-only `f520323c...`,
+combined `e56b52e8...`, and aggregate `f06fd069...` artifacts.
 The historical phase confidence intervals still audit the attribution study,
 but they are not exact measurements of the final slice-containing artifacts.
 No current-artifact performance claim is made from them. This limitation is
@@ -337,21 +351,18 @@ executable; the target was not a persistent Podman cache.
 
 | Mode | Build time | Change vs baseline | File size | Size change |
 | --- | ---: | ---: | ---: | ---: |
-| baseline | 489.492 s | — | 59,765,240 B | — |
-| midpoint | 270.977 s | -44.64% | 59,766,664 B | +1,424 B (+0.002%) |
-| slice comparison | 274.344 s | -43.95% | 59,782,136 B | +16,896 B (+0.028%) |
-| midpoint + slice | 276.596 s | -43.49% | 59,780,952 B | +15,712 B (+0.026%) |
-| full aggregate | 290.871 s | -40.58% | 59,780,952 B | +15,712 B (+0.026%) |
+| baseline | 282.600 s | — | 59,765,240 B | — |
+| midpoint | 292.770 s | +3.60% | 59,766,664 B | +1,424 B (+0.002%) |
+| slice comparison | 303.226 s | +7.30% | 59,774,984 B | +9,744 B (+0.016%) |
+| midpoint + slice | 302.453 s | +7.03% | 59,776,408 B | +11,168 B (+0.019%) |
+| full aggregate | 278.582 s | -1.42% | 59,775,144 B | +9,904 B (+0.017%) |
 
 Compile times are one sequential observation per mode, not paired samples. They
 include all locked benchmark dependencies and are affected by host scheduling,
-filesystem cache state, and build order. All four candidates appeared 40-45%
-faster to compile than the first baseline despite radically different enabled
-rewrites. Combined-key and the later aggregate build emitted the exact same
-benchmark file but still differed by 5.16%. This ordering effect demonstrates
-that none of these one-shot differences can be attributed to pass cost. The
-stable observation is 0.026% code-size growth; randomized compile-time pairs
-would be needed for an interval.
+filesystem cache state, and build order. Candidate differences range from
+-1.42% to +7.30%, so none of these one-shot values can be attributed to pass
+cost. The deterministic observation is only 0.002%-0.019% code-size growth;
+randomized compile-time pairs would be needed for a timing interval.
 
 ## Limitations and follow-up
 
