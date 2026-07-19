@@ -26,9 +26,35 @@ variant_wrapper="${COMPILER_VARIANT_WRAPPER:-/usr/local/bin/with-compiler-varian
 redb_lockfile="${REDB_LOCKFILE:-/usr/src/redb/Cargo.lock}"
 baseline_binary="${ACO_BASELINE_BENCHMARK:-/usr/local/bin/redb-benchmark-baseline}"
 optimized_binary="${ACO_OPTIMIZED_BENCHMARK:-/usr/local/bin/redb-benchmark-optimized}"
-cargo_path="${CARGO_PATH:-$(command -v cargo)}"
+cargo_proxy_path="${CARGO_PATH:-$(command -v cargo)}"
 monotonic_clock="${MONOTONIC_CLOCK_PATH:-/usr/local/bin/aco-monotonic-clock}"
 comparison_runner="${BENCHMARK_RUNNER:-/usr/local/bin/compare-redb-benchmarks}"
+
+canonical_path() {
+    readlink --canonicalize-existing -- "$1"
+}
+
+cargo_proxy_real_path="$(canonical_path "${cargo_proxy_path}")" \
+    || fail "could not resolve the Cargo invocation path"
+cargo_path="${CARGO_SELECTED_PATH:-}"
+if [[ -z "${cargo_path}" ]]; then
+    rustup_path="${RUSTUP_PATH:-$(command -v rustup || true)}"
+    if [[ -n "${rustup_path}" ]]; then
+        rustup_real_path="$(canonical_path "${rustup_path}")" \
+            || fail "could not resolve rustup"
+    else
+        rustup_real_path=""
+    fi
+
+    if [[ "${cargo_proxy_real_path}" == "${rustup_real_path}" ]]; then
+        cargo_path="$("${rustup_path}" which cargo)" \
+            || fail "could not resolve the Cargo executable selected by rustup"
+    else
+        cargo_path="${cargo_proxy_path}"
+    fi
+fi
+cargo_path="$(canonical_path "${cargo_path}")" \
+    || fail "could not resolve the selected Cargo executable"
 
 for input in \
     "${compiler_manifest}" \
@@ -39,6 +65,7 @@ for input in \
     "${redb_lockfile}" \
     "${baseline_binary}" \
     "${optimized_binary}" \
+    "${cargo_proxy_path}" \
     "${cargo_path}" \
     "${monotonic_clock}" \
     "${comparison_runner}"; do
@@ -85,10 +112,16 @@ optimizer_wrapper_sha256="$(hash_file "${optimizer_wrapper}")" \
     || fail "could not hash the optimizer wrapper"
 variant_wrapper_sha256="$(hash_file "${variant_wrapper}")" \
     || fail "could not hash the compiler variant wrapper"
-cargo_version="$("${cargo_path}" --version)" \
+cargo_version="$("${cargo_proxy_path}" --version)" \
     || fail "could not read the Cargo version"
+selected_cargo_version="$("${cargo_path}" --version)" \
+    || fail "could not read the selected Cargo version"
+[[ "${cargo_version}" == "${selected_cargo_version}" ]] \
+    || fail "Cargo proxy and selected executable report different versions"
 cargo_sha256="$(hash_file "${cargo_path}")" \
-    || fail "could not hash Cargo"
+    || fail "could not hash the selected Cargo executable"
+cargo_proxy_sha256="$(hash_file "${cargo_proxy_path}")" \
+    || fail "could not hash the Cargo proxy"
 monotonic_clock_sha256="$(hash_file "${monotonic_clock}")" \
     || fail "could not hash the monotonic clock"
 comparison_runner_sha256="$(hash_file "${comparison_runner}")" \
@@ -122,6 +155,7 @@ trap 'rm -f -- "${temporary_manifest}"' EXIT
     printf 'compiler_variant_wrapper_sha256\t%s\n' "${variant_wrapper_sha256}"
     printf 'cargo_version\t%s\n' "${cargo_version}"
     printf 'cargo_sha256\t%s\n' "${cargo_sha256}"
+    printf 'cargo_proxy_sha256\t%s\n' "${cargo_proxy_sha256}"
     printf 'monotonic_clock\tclock_gettime(CLOCK_MONOTONIC)\n'
     printf 'monotonic_clock_sha256\t%s\n' "${monotonic_clock_sha256}"
     printf 'comparison_runner_sha256\t%s\n' "${comparison_runner_sha256}"

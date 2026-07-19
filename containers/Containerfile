@@ -74,16 +74,14 @@ RUN apt-get -o Acquire::Check-Valid-Until=false update \
 
 COPY --from=alive2-builder /opt/alive2/bin/alive /usr/local/bin/alive
 COPY scripts/verify-alive2-proofs.sh /usr/local/bin/verify-alive2-proofs
+COPY scripts/verify-alive2-negative-proofs.sh /usr/local/bin/verify-alive2-negative-proofs
 COPY optimizer/proofs/ /opt/aco/proofs/
 COPY tests/alive2/ /opt/aco/regressions/
 
 RUN set -eux; \
     alive --version 2>&1 | grep --fixed-strings "version ${ALIVE2_COMMIT}"; \
     verify-alive2-proofs /opt/aco/proofs; \
-    if verify-alive2-proofs /opt/aco/regressions; then \
-        echo "Alive2 accepted a known-inequivalent transformation" >&2; \
-        exit 1; \
-    fi
+    verify-alive2-negative-proofs /opt/aco/regressions
 
 ENTRYPOINT ["/usr/local/bin/verify-alive2-proofs"]
 CMD ["/opt/aco/proofs"]
@@ -129,6 +127,9 @@ RUN --mount=type=cache,id=ai-compiler-optimizer-rust-${BUILD_ENVIRONMENT_ID},tar
     LLVM_CONFIG="build/${build_host}/ci-llvm/bin/llvm-config" \
         OUTPUT=/tmp/libaco_optimizer.so \
         /usr/src/optimizer/build.sh; \
+    OPT="build/${build_host}/ci-llvm/bin/opt" \
+        PLUGIN=/tmp/libaco_optimizer.so \
+        bash /usr/src/optimizer/test.sh; \
     install --mode 0755 \
         /tmp/libaco_optimizer.so \
         /opt/rust-custom/lib/libaco_optimizer.so; \
@@ -214,10 +215,12 @@ RUN apt-get -o Acquire::Check-Valid-Until=false update \
 WORKDIR /usr/src/redb
 COPY third_party/redb/ ./
 COPY config/redb-Cargo.lock ./Cargo.lock
+COPY tests/redb-ir-probe/ /usr/src/tests/redb-ir-probe/
 COPY scripts/select-cargo-executable.sh /usr/local/bin/select-cargo-executable
 COPY scripts/build-redb-benchmark.sh /usr/local/bin/build-redb-benchmark
 COPY scripts/write-benchmark-provenance.sh /usr/local/bin/write-benchmark-provenance
 COPY scripts/compare-redb-benchmarks.sh /usr/local/bin/compare-redb-benchmarks
+COPY scripts/verify-redb-variant-traces.sh /usr/local/bin/verify-redb-variant-traces
 COPY tools/monotonic-clock.c /tmp/monotonic-clock.c
 
 # Compile and test both variants with the same custom rustc. Cargo comes from
@@ -240,6 +243,28 @@ RUN --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local
         cargo test --locked --package redb@4.1.0 --lib; \
     with-compiler-variant optimized \
         cargo test --locked --package redb@4.1.0 --lib; \
+    mkdir -p /usr/src/third_party; \
+    ln -s /usr/src/redb /usr/src/third_party/redb; \
+    for probe_variant in baseline optimized; do \
+        ACO_CARGO_TARGET_ROOT="/tmp/redb-${probe_variant}-ir-probe-target" \
+        ACO_OPTIMIZER_TRACE=1 \
+            with-compiler-variant "${probe_variant}" \
+            cargo build \
+                --locked \
+                --offline \
+                --release \
+                --manifest-path /usr/src/tests/redb-ir-probe/Cargo.toml \
+                2> "/tmp/redb-${probe_variant}-ir-probe-trace"; \
+    done; \
+    verify-redb-variant-traces \
+        /tmp/redb-baseline-ir-probe-trace \
+        /tmp/redb-optimized-ir-probe-trace; \
+    rm -rf \
+        /tmp/redb-baseline-ir-probe-target \
+        /tmp/redb-baseline-ir-probe-trace \
+        /tmp/redb-optimized-ir-probe-target \
+        /tmp/redb-optimized-ir-probe-trace \
+        /usr/src/third_party/redb; \
     build-redb-benchmark \
         baseline \
         /usr/local/bin/redb-benchmark-baseline; \

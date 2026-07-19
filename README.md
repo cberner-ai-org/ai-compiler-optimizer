@@ -6,13 +6,14 @@ This repository experiments with generating small LLVM optimizations, proving
 them equivalent with a solver, and measuring them against real Rust programs.
 The initial performance target is [redb](https://github.com/cberner/redb).
 
-The current scaffold builds an editable, pinned Rust compiler, attaches a
-loadable no-op LLVM optimization pipeline, checks declarative rewrite
-obligations with a pinned Alive2 solver image, and compiles paired redb
-benchmarks with that pipeline disabled and enabled. The pass changes no IR yet;
-it establishes the insertion point and A/B measurement path for later
-solver-proven rewrites. See the [design document](docs/design.md) for the
-planned architecture and safety model.
+The project builds an editable, pinned Rust compiler, attaches a loadable LLVM
+optimization pipeline, checks declarative rewrite obligations with a pinned
+Alive2 solver image, and compiles paired redb benchmarks with that pipeline
+disabled and enabled. Its first transforming pass removes redundant signed
+three-way comparison normalization from redb's hot B-tree searches. See the
+[optimization report](docs/optimizations/scmp-switch-optimization-report.md) for its proof,
+implementation boundary, and corrected exploratory measurements, and the
+[design document](docs/design.md) for the architecture and safety model.
 
 The source inputs are Git submodules pinned to:
 
@@ -37,6 +38,7 @@ dependencies. It was generated with Cargo 1.97.1 while respecting redb's Rust
 
 - Git
 - GNU Make
+- GNU awk
 - ripgrep
 - Rootless Podman 4.9 or newer
 - At least 15 GiB of available storage for compiler and benchmark builds
@@ -75,13 +77,17 @@ inputs enabled, a 10-second SMT-query timeout, a 30-second process timeout, and 
 limit. A proof is accepted only when one transformation reports success and the verifier emits no
 diagnostics. Parse errors, type errors, counterexamples, warnings, timeouts, resource failures,
 unsupported semantics, and ambiguous multi-transformation files all fail closed. The image build
-also confirms that a known-inequivalent rewrite is rejected.
+also checks every negative candidate independently and requires exactly one clean Alive2 semantic
+counterexample; extra diagnostics or a nonzero solver status reject the negative control.
 
 The initial `scaffold-identity.opt` is an end-to-end solver smoke test, not a
-transforming optimization. Add one candidate per `.opt` file. A future pass
-rewrite must be generated from, or structurally checked against, the same
-candidate that Alive2 proves; this prototype does not claim that an independent
-C++ implementation is equivalent merely because a similar formula was proved.
+transforming optimization. `scmp-i64-switch-classification.opt` proves the
+accepted staged three-way comparison rewrite, and
+`scmp-i64-switch-undef-correlation.opt` covers reused undef-capable operands
+explicitly. Add one candidate per `.opt` file. A pass rewrite must be generated
+from, or structurally checked against, the same candidate that Alive2 proves;
+this prototype does not claim that an independent C++ implementation is
+equivalent merely because a similar formula was proved.
 
 Alive2 was selected based on its [PLDI 2021 bounded translation-validation
 paper](https://doi.org/10.1145/3453483.3454030) and its use as a formal
@@ -100,10 +106,10 @@ podman run --rm localhost/ai-compiler-optimizer-toolchain:rust-1.97.1
 
 The `toolchain` image stage builds `./x build --stage 1 library`, copies the
 stage-1 compiler and standard-library sysroot to `/opt/rust-custom`, builds
-`libaco_optimizer.so` against rustc's exact LLVM, and compiles and runs a smoke
-program both without and with the pass pipeline. Its persistent build cache
-makes subsequent compiler edits incremental; pass-only edits do not rebuild
-rustc.
+`libaco_optimizer.so` against rustc's exact LLVM, runs the focused pass
+regression with that LLVM's `opt`, and compiles and runs a smoke program both
+without and with the pass pipeline. Its persistent build cache makes subsequent
+compiler edits incremental; pass-only edits do not rebuild rustc.
 
 The custom sysroot does not build Cargo. Cargo 1.97.1 from the digest-pinned
 official image acts only as the orchestrator. `with-compiler-variant baseline`
@@ -131,8 +137,12 @@ make benchmark
 ```
 
 The benchmark image build verifies the custom sysroot, runs redb's library
-tests in both compiler modes, and compiles `redb_benchmark` twice. The baseline
-artifact uses the stage-1 compiler without custom pass flags; the optimized
+tests in both compiler modes, and compiles a focused redb byte-slice probe from
+separate fresh baseline and optimized targets with tracing enabled. The
+baseline probe must emit no ACO trace, while the optimized probe must emit at
+least one transforming trace, before the image compiles `redb_benchmark`
+twice. The baseline artifact uses the stage-1 compiler without custom pass
+flags; the optimized
 artifact uses the same compiler with the ACO pipeline enabled. The target cache
 may contain outputs from several compiler identities, so each installation uses
 the executable path emitted by its current Cargo invocation rather than
@@ -147,9 +157,10 @@ each benchmark is labeled, and the final table compares total wall time with
 positive percentages meaning the optimized variant was faster. Elapsed samples
 come from `clock_gettime(CLOCK_MONOTONIC)`;
 the runner rejects non-positive samples and reports both online CPU count and
-the effective affinity list/count inherited by the benchmarks. The clock helper
-is built from repository source and recorded in the provenance manifest. One
-round is a plumbing check, not statistically meaningful evidence. Set
+the effective affinity list/count inherited by the benchmarks, plus CPU vendor
+and model from `/proc/cpuinfo`. The clock helper is built from repository source
+and recorded in the provenance manifest. One round is a plumbing check, not
+statistically meaningful evidence. Set
 `ACO_BENCHMARK_RUNS` through Podman for repeated measurements, and pass other
 Podman options through the runner when controlling the environment:
 
@@ -171,14 +182,19 @@ caches. The Cargo registry cache is shared across environments because locked
 crate downloads are content-addressed and checksum-verified. Bootstrap and
 source changes keep using the current environment's incremental compiler cache;
 changing either native environment pin automatically selects fresh mutable
-caches. Podman options passed to `build-image.sh` cannot override the protected
-Rust, redb, Alive2, base-image, snapshot, or build-environment arguments.
+caches. `build-image.sh` applies a deny-by-default option allowlist: callers may
+control resource limits, local cache use, retries, pulling the digest-pinned
+base, and log visibility. Every unclassified option is rejected, including
+environment injection, build arguments, named build contexts, labels, source
+mounts, alternate Containerfiles or stages, base-image replacement, and target
+platform changes.
 
 The benchmark runtime embeds
 `/usr/local/share/ai-compiler-optimizer/benchmark-provenance.tsv`. It records the
 compiler artifact ID, hashes of rustc, its driver set, LLVM and sysroot, the
-optimizer plugin and wrappers, Cargo, the redb revision and lockfile, both
-benchmark binaries, the comparison runner, and the pinned native environment.
+optimizer plugin and wrappers, the Cargo executable selected by rustup and its
+dispatch proxy, the redb revision and lockfile, both benchmark binaries, the
+comparison runner, and the pinned native environment.
 The runner verifies itself, the clock, and both binaries before printing the
 complete manifest and starting an experiment.
 
@@ -196,10 +212,14 @@ complete manifest and starting an experiment.
 - `scripts/write-compiler-artifact-manifest.sh`: complete toolchain identity owner
 - `scripts/rustc-with-aco-passes.sh`: rustc wrapper that loads the custom pass pipeline
 - `scripts/compare-redb-benchmarks.sh`: alternating paired redb benchmark runner
+- `scripts/summarize-redb-subbenchmarks.sh`: pointwise and family-wise paired statistics
 - `scripts/verify-alive2-proofs.sh`: fail-closed proof-result adapter
+- `scripts/verify-alive2-negative-proofs.sh`: exact negative-control result adapter
 - `scripts/check.sh`: revision and scaffolding consistency checks
 - `scripts/build-image.sh`: Podman image build entry point
+- `scripts/validate-build-options.sh`: safe Podman build-option allowlist
 - `docs/design.md`: architecture, safety model, and project milestones
+- `docs/optimizations/scmp-switch-optimization-report.md`: accepted pass proof and benchmark report
 
 ## License
 
