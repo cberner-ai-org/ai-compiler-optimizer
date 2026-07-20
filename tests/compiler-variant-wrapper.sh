@@ -56,6 +56,13 @@ mapfile -t midpoint_actual < <(
 )
 [[ "${midpoint_actual[1]}" == "-Cpasses=aco-midpoint-only" ]]
 
+mapfile -t all_passes_actual < <(
+    ACO_TOOLCHAIN_ROOT="${fixture_root}" \
+    ACO_OPTIMIZER_PIPELINE=aco-all-passes \
+        "${repo_root}/scripts/rustc-with-aco-passes.sh" --version
+)
+[[ "${all_passes_actual[1]}" == "-Cpasses=aco-all-passes" ]]
+
 if ACO_TOOLCHAIN_ROOT="${fixture_root}" \
     ACO_OPTIMIZER_PIPELINE=unreviewed-pipeline \
         "${repo_root}/scripts/rustc-with-aco-passes.sh" --version \

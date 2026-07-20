@@ -1,0 +1,13 @@
+benchmark	rounds	raw_samples_per_variant	baseline_mean_ms	optimized_mean_ms	aggregate_speedup_percent	paired_mean_speedup_percent	paired_median_speedup_percent	paired_95ci_low_percent	paired_95ci_high_percent	paired_familywise_95ci_low_percent	paired_familywise_95ci_high_percent
+bulk_load	7	7	14022.857	13774.571	+1.802	+1.805	+1.648	+0.854	+2.755	+0.062	+3.547
+individual_writes	7	7	45.143	44.714	+0.958	+0.988	+2.222	-1.362	+3.339	-3.321	+5.297
+batch_writes	7	7	1555.429	1556.286	-0.055	+0.083	-0.198	-5.135	+5.301	-9.483	+9.648
+nosync_writes	7	7	3445.571	3420.286	+0.739	+0.745	+0.642	-0.474	+1.963	-1.490	+2.979
+random_reads	7	14	1610.429	1571.143	+2.500	+2.538	+3.277	-0.560	+5.636	-3.142	+8.218
+random_range_reads	7	14	1617.143	1614.786	+0.146	+0.172	-0.371	-2.239	+2.583	-4.247	+4.592
+random_reads_4_threads	7	7	2067.429	2041.000	+1.295	+1.302	+1.425	+0.521	+2.082	-0.129	+2.732
+random_reads_8_threads	7	7	1237.857	1153.000	+7.360	+7.404	+4.671	-0.781	+15.589	-7.601	+22.409
+random_reads_16_threads	7	7	1196.000	1215.000	-1.564	-1.128	+0.677	-7.750	+5.495	-13.269	+11.013
+random_reads_32_threads	7	7	1182.286	1179.857	+0.206	+0.422	+1.195	-4.318	+5.163	-8.268	+9.112
+removals	7	7	9856.000	9811.857	+0.450	+0.459	+0.235	-1.101	+2.019	-2.400	+3.319
+compaction	7	7	3705.286	3735.286	-0.803	-0.798	-1.304	-1.731	+0.135	-2.508	+0.912

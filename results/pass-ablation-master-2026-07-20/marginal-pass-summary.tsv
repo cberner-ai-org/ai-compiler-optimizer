@@ -1,0 +1,4 @@
+pass	reference	candidate	rounds	reference_mean_s	candidate_mean_s	aggregate_speedup_percent	paired_mean_speedup_percent	paired_median_speedup_percent	paired_95ci_low_percent	paired_95ci_high_percent	three_test_bonferroni_95ci_low_percent	three_test_bonferroni_95ci_high_percent	two_sided_p	three_test_bonferroni_p
+midpoint	slice-comparison	key-comparisons	7	51.490	51.654	-0.317	-0.309	-0.374	-1.520	+0.902	-1.936	+1.318	0.5554	1.0000
+slice-comparison	midpoint	key-comparisons	7	51.672	52.095	-0.811	-0.791	-1.213	-2.235	+0.654	-2.732	+1.150	0.2288	0.6864
+scmp-switch	key-comparisons	optimized	7	51.918	51.206	+1.391	+1.389	+1.396	+0.270	+2.508	-0.114	+2.892	0.0229	0.0686

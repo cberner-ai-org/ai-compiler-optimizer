@@ -2,9 +2,10 @@
 
 ## Summary
 
-Safety status: accepted on 2026-07-19. Performance status: the requested 5%
-threshold was not reproduced by the longer pre-hardening attribution
-experiment; current hardened slice binaries require a new long run.
+Safety status: accepted on 2026-07-19. Performance status: disabled by default
+on 2026-07-20. A seven-pair exact-artifact ablation on current master found
+negative marginal whole-process point estimates for both keyhole rewrite
+families and a robust nosync-write regression in the former full pipeline.
 
 The LLVM 22 `KeyholePass` specializes two operations in redb's B-tree lookup
 path:
@@ -16,26 +17,28 @@ path:
    and the later sign-normalization chain.
 
 Both transformations have exact, fail-closed Alive2 refinement proofs and
-focused positive, near-miss, mode-isolation, and idempotence tests. The compiler
-now exposes midpoint-only, slice-only, combined-key, and aggregate pipelines so
-their effects can be measured independently.
+focused positive, near-miss, mode-isolation, and idempotence tests. They remain
+available through midpoint-only, slice-only, combined-key, and explicit
+all-passes pipelines, but are not scheduled by `aco-passes`.
 
-The original exploratory five-pair run reported 6.09% and 9.63% improvements
-for redb's two one-million-item random-read iterations. A new seven-pair study
-used the same baseline and combined benchmark hashes, retained all raw samples,
-and computed paired confidence intervals. Its predeclared random-read endpoint
-found:
+The latest study used exact hardened benchmark artifacts, seven alternating
+pairs per comparison, corrected process-only timing, and complete provenance:
 
-| Mode | Paired mean speedup | 95% CI | Aggregate ratio |
-| --- | ---: | ---: | ---: |
-| midpoint only | -0.82% | [-4.06%, +2.42%] | -0.96% |
-| slice comparison only | +0.34% | [-7.57%, +8.24%] | +0.00% |
-| midpoint + slice | +1.65% | [-9.19%, +12.50%] | +0.99% |
+| Comparison | Paired whole-process speedup | 95% CI |
+| --- | ---: | ---: |
+| midpoint vs baseline | +0.553% | [-1.069%, +2.174%] |
+| slice vs baseline | -0.647% | [-3.065%, +1.770%] |
+| midpoint + slice vs baseline | -0.283% | [-0.985%, +0.419%] |
+| add midpoint while holding slice enabled | -0.309% | [-1.520%, +0.902%] |
+| add slice while holding midpoint enabled | -0.791% | [-2.235%, +0.654%] |
 
-No mode has a positive lower confidence bound, and no point estimate reaches
-5%. The earlier performance claim is therefore not considered reproduced. The
-pass remains proven safe and reviewable, but this experiment does not satisfy
-the repository's performance objective.
+Neither individual keyhole effect is statistically resolved, but both direct
+marginal point estimates are negative. In addition, the former full pipeline
+regressed nosync writes by -2.041%, with a 12-endpoint family-wise 95% interval
+of [-3.257%, -0.826%]; that signal also survives a conservative Bonferroni
+correction over all 84 inspected phase hypotheses (adjusted `p` approximately
+0.024). Keeping these rewrites opt-in avoids spending default compile time and
+code size on transformations without positive workload evidence.
 
 ## Motivation and workload location
 
@@ -55,16 +58,18 @@ silently contain the other key optimization.
 
 ## Selectable pipelines
 
-The plugin exposes four strict pipeline names:
+The plugin exposes five strict pipeline names:
 
 | Pipeline | Midpoint | Slice/`memcmp` | signed `scmp` switch |
 | --- | :---: | :---: | :---: |
 | `aco-midpoint-only` | yes | no | no |
 | `aco-slice-comparison-only` | no | yes | no |
 | `aco-key-comparisons` | yes | yes | no |
-| `aco-passes` | yes | yes | yes |
+| `aco-passes` | no | no | yes |
+| `aco-all-passes` | yes | yes | yes |
 
-The keyhole pass runs before signed-switch lowering. This ordering is required:
+In the explicit `aco-all-passes` pipeline, the keyhole pass runs before
+signed-switch lowering. This ordering is required:
 the slice matcher consumes an exact `llvm.scmp` use chain, so lowering that
 intrinsic first makes the aggregate pipeline miss a separately proved rewrite.
 The focused structural test contains a slice ordering immediately consumed by a
@@ -246,7 +251,7 @@ the known-inequivalent and unfrozen negative controls.
   module-defined `memcmp` body untouched. An explicit `ptr undef` positive case
   checks that both generated loads and the retained call share each frozen
   pointer value.
-- `optimizer/test.sh` tests all four pipelines through the real LLVM 22 plugin
+- `optimizer/test.sh` tests all five pipelines through the real LLVM 22 plugin
   and a linked structural driver, runs each keyhole pipeline twice, checks exact
   transform counts, preserves the near miss, and checks idempotence.
 - Wrapper tests check the strict pipeline allowlist, per-mode environment, and
@@ -256,8 +261,9 @@ the known-inequivalent and unfrozen negative controls.
   baseline, and monotonic clock, and reject unknown, missing, or mismatched
   mappings.
 - The toolchain image compiles and runs a Rust slice-ordering smoke with and
-  without the plugin and inspects optimized LLVM IR for the specialized fast
-  path.
+  without the plugin and rejects midpoint or slice-specialization markers in
+  default optimized IR. The fresh redb probe separately requires signed-switch
+  lowering.
 - The redb image ran all 37 library tests independently in baseline and
   optimized modes. Both sets passed.
 - The benchmark image linked all five artifacts, checked all mode-specific
@@ -273,7 +279,7 @@ the known-inequivalent and unfrozen negative controls.
 - Proof-gate regressions model Alive2's stdout always-UB warning and require
   both diagnostic rejection and the `-fail-src-ub` verifier option.
 
-## Seven-pair attribution experiment
+## Historical pre-hardening seven-pair attribution experiment
 
 ### Method
 
@@ -360,8 +366,9 @@ produced slice-only `3c0d4f64...`, combined `b7d9caae...`, and aggregate
 `bed73dd4...` artifacts.
 The historical phase confidence intervals still audit the attribution study,
 but they are not exact measurements of the final slice-containing artifacts.
-No current-artifact performance claim is made from them. This limitation is
-independent of the legacy whole-run timer contamination described above.
+No current-artifact performance claim is made from those historical samples.
+The exact-artifact 2026-07-20 ablation reported in the summary resolves this
+specific limitation; it does not repair the older samples.
 
 The original five-pair experiment used baseline hash
 `40bf2eb5690962e64dc3e7b42313d69b857b6ffab154b136c81524e06c0f3756`
@@ -371,7 +378,7 @@ same exact files used here. Its favorable 6.09% and 9.63% per-iteration ratios
 had no confidence interval and are superseded as acceptance evidence by this
 longer attribution study.
 
-## Code size and compile-time impact
+## Current code size and compile-time impact
 
 The benchmark image records full executable file size and wall time for each
 separate `cargo bench --no-run` build. Every mode started with an absent
@@ -380,18 +387,20 @@ executable; the target was not a persistent Podman cache.
 
 | Mode | Build time | Change vs baseline | File size | Size change |
 | --- | ---: | ---: | ---: | ---: |
-| baseline | 277.677 s | — | 59,765,240 B | — |
-| midpoint | 277.951 s | +0.10% | 59,766,664 B | +1,424 B (+0.002%) |
-| slice comparison | 278.275 s | +0.22% | 59,768,680 B | +3,440 B (+0.006%) |
-| midpoint + slice | 277.237 s | -0.16% | 59,770,096 B | +4,856 B (+0.008%) |
-| full aggregate | 275.849 s | -0.66% | 59,768,840 B | +3,600 B (+0.006%) |
+| baseline | 275.566 s | — | 59,765,240 B | — |
+| midpoint | 276.774 s | +0.44% | 59,766,664 B | +1,424 B (+0.002%) |
+| slice comparison | 278.553 s | +1.08% | 59,768,680 B | +3,440 B (+0.006%) |
+| midpoint + slice | 280.340 s | +1.73% | 59,770,096 B | +4,856 B (+0.008%) |
+| signed-switch default | 275.544 s | -0.01% | 59,764,552 B | -688 B (-0.001%) |
 
 Compile times are one sequential observation per mode, not paired samples. They
 include all locked benchmark dependencies and are affected by host scheduling,
 filesystem cache state, and build order. Candidate differences range from
--0.66% to +0.22%, so none of these one-shot values can be attributed to pass
-cost. The deterministic observation is only 0.002%-0.008% code-size growth;
-randomized compile-time pairs would be needed for a timing interval.
++0.44% to +1.73% for the keyhole artifacts, so none of these one-shot values can
+be attributed to pass cost. Their deterministic observation is
+0.002%-0.008% code-size growth; the signed-switch-only default instead shrinks
+the binary by 688 bytes. Independent randomized compile-time pairs would be
+needed for a timing interval.
 
 ## Limitations and follow-up
 
@@ -402,13 +411,9 @@ randomized compile-time pairs would be needed for a timing interval.
 - Runtime blocks were paired and started after idle checks, but shared-host
   contention remained visible. A dedicated host and substantially more
   randomized pairs are required before making another performance claim.
-- A new long paired run is required before reporting corrected process-only
-  whole-run confidence intervals. The timer correction alone does not affect
-  phase confidence intervals because redb emitted those timings itself.
-- The final slice-containing binaries differ from the seven-pair experiment
-  after call-contract and pointer-correlation hardening, so a new long run is
-  also required before applying phase confidence intervals to the current
-  artifacts. Baseline and midpoint hashes remain exact matches.
+- The 2026-07-20 ablation supplies corrected process-only confidence intervals
+  for exact hardened artifacts. Its complete raw data and provenance are in
+  `results/pass-ablation-master-2026-07-20/`.
 - Compile-time values are descriptive single observations and have no
   confidence interval.
 - The next optimization candidate should not rely on this pass to satisfy the

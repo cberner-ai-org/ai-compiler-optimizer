@@ -14,16 +14,27 @@ obligation. The LLVM regression checks reuse of those exact frozen SSA values,
 the complete less/equal/greater destination mapping, and PHI repair. The
 benchmark image also compiles a real redb byte-slice probe from separate fresh
 baseline and optimized target directories; baseline must emit no ACO trace,
-while optimized must emit a transforming trace.
+while optimized must emit a signed-switch transformation and no keyhole trace.
 
-There is currently no retained repeated experiment that satisfies the final
-provenance scheme. A seven-pair historical diagnostic observed the
-pass-sensitive single-thread random-read sub-benchmark improve from 2100.357 ms
-to 1959.429 ms, an aggregate **7.192%**, but it hashed the rustup proxy instead
-of the selected Cargo executable. Its pointwise 95% interval was -5.306% to
-+20.090%, its 12-endpoint family-wise interval was -15.887% to +30.671%, and
-the host was visibly nonstationary. It is retained only as
-provenance-incomplete exploratory data and is not evidence for a 5% speedup.
+Performance status: enabled by default. A direct seven-pair follow-up measured
+the rebuilt signed-switch-only default against baseline. Its paired mean
+whole-process speedup was **+0.894%**, with a 95% confidence interval of
+**[+0.189%, +1.599%]**; all seven paired estimates were positive. This confirms a
+positive effect in the follow-up without either keyhole rewrite, although it is
+well below the original 5% objective.
+
+The result agrees with the preceding exact-artifact ablation, which measured the
+pass by adding it to the midpoint + slice artifact: +1.389%, individual 95% CI
+[+0.270%, +2.508%] (`p = 0.0229`). That earlier three-pass study did not quite
+survive conservative Bonferroni correction across all direct pass hypotheses
+(simultaneous interval [-0.114%, +2.892%], adjusted `p = 0.0686`). The separate
+signed-switch-only follow-up was collected after the default policy changed and
+uses the whole process as its predeclared endpoint.
+
+The performance-gated `aco-passes` pipeline therefore contains this pass alone.
+Midpoint narrowing and slice specialization remain safety-proved opt-ins; both
+had negative direct marginal point estimates, and the former full pipeline had
+a robust nosync-write regression.
 
 ## Motivation and generated IR
 
@@ -150,10 +161,13 @@ then checks the emitted frozen operands, destinations, and PHIs. These
 independent defenses keep the proof boundary explicit; the project does not
 claim that Alive2 directly verified arbitrary C++ pass code.
 
-A second candidate for narrowing Rust's widened `usize::midpoint` arithmetic
-was explored. Alive2 timed out both the ordered-difference and carry-free
-formulations, including a bounded 60-second diagnostic run. Under the
-fail-closed policy, that candidate and its implementation were removed.
+An earlier unrestricted candidate for narrowing Rust's widened
+`usize::midpoint` arithmetic was explored. Alive2 timed out both the
+ordered-difference and carry-free formulations, including a bounded 60-second
+diagnostic run. Under the fail-closed policy, that candidate and its
+implementation were removed. A later loop-structure-constrained midpoint
+candidate obtained an exact proof; it remains available as the performance-
+disabled `aco-midpoint-only` pipeline.
 
 ## redb integration coverage
 
@@ -167,14 +181,42 @@ a separate integration gate:
    tracing enabled, offline dependency resolution, and separate fresh temporary
    Cargo targets;
 3. reject any `aco-keyhole` or `aco-three-way-compare` trace from baseline; and
-4. require at least one `aco-three-way-compare: transformed` line from the
-   optimized build.
+4. require at least one `aco-three-way-compare: transformed` line and reject
+   every `aco-keyhole` line from the optimized build.
 
 A cached benchmark binary cannot satisfy either gate because both probe targets
 are newly created for the image step. Injecting `RUSTFLAGS`, a Cargo compiler
 wrapper, or another mechanism that schedules ACO in both variants causes the
 baseline gate to fail. The rebuilt image reported baseline exclusion and two
 optimized transforming trace lines.
+
+## Current signed-switch-only measurement
+
+Image `bad4dc74dfe0...` rebuilt the default after removing both keyhole rewrite
+families from `aco-passes`. Its clean optimized benchmark trace contained
+nonzero signed-switch transformations, including redb's
+`LeafAccessor::position` and `BranchAccessor::child_for_key` specializations,
+and no keyhole trace. The candidate binary hash is `7671da275b90...`; baseline
+remained `40bf2eb56909...`.
+
+Seven paired rounds alternated execution order on CPUs 0-7 of an eight-vCPU AMD
+EPYC-Milan KVM guest. Complete-process time used
+`clock_gettime(CLOCK_MONOTONIC)`. The whole process was the predeclared endpoint.
+
+| Metric | Baseline | Signed-switch default | Effect |
+| --- | ---: | ---: | ---: |
+| Runtime mean | 51.212 s | 50.760 s | +0.892% ratio of means |
+| Paired runtime | — | — | +0.894%, 95% CI [+0.189%, +1.599%] |
+| Single clean build | 275.566 s | 275.544 s | -0.008% descriptive |
+| Exact binary size | 59,765,240 B | 59,764,552 B | -688 B (-0.001%) |
+
+All seven paired process estimates were positive. Across the 12 secondary redb
+phases, no family-wise interval showed a regression. Bulk load was the only
+family-wise interval excluding zero: +1.805% paired mean,
+[+0.062%, +3.547%]. Shared-host noise remained visible in higher-thread-count
+reads, so no sample was removed and no unadjusted phase was selected as an
+additional claim. Raw samples, provenance, exact summaries, and checksums are in
+`results/default-scmp-2026-07-20/`.
 
 ## Historical diagnostic method and inference policy
 
@@ -288,9 +330,10 @@ Completed checks:
 - custom Rust toolchain image smoke and compiler-cache regressions;
 - all 37 redb library tests in baseline and optimized modes;
 - separate fresh redb probe builds proving baseline exclusion and optimized matching;
-- redb benchmark image smoke checks; and
-- one-round `make benchmark` with the final provenance fields plus a retained,
-  explicitly provenance-incomplete seven-pair diagnostic.
+- redb benchmark image smoke checks;
+- one-round `make benchmark` with the final provenance fields;
+- a seven-pair exact-provenance ablation of all three passes; and
+- a seven-pair direct benchmark of the rebuilt signed-switch-only default.
 
 Relevant files:
 
@@ -305,6 +348,8 @@ Relevant files:
 - build option allowlist: `scripts/validate-build-options.sh`;
 - closed-bundle provenance: `scripts/write-benchmark-provenance.sh`;
 - corrected statistics: `scripts/summarize-redb-subbenchmarks.sh`;
+- current direct-default result: `results/default-scmp-2026-07-20/`;
+- current all-pass ablation: `results/pass-ablation-master-2026-07-20/`;
 - provenance-incomplete diagnostic:
   `results/scmp-switch-provenance-incomplete/README.md`, `raw.log`,
   `total-times.tsv`, and `subbench-summary.tsv`; and
@@ -321,6 +366,6 @@ make benchmark-image
 make benchmark
 ```
 
-For a confirmatory performance run, predeclare the random-read endpoint, use an
-otherwise idle host, retain at least seven paired rounds, and reject the run if
-system load or within-run timing shows a regime change.
+For replication on a dedicated host, predeclare the whole-process endpoint,
+retain at least seven alternating pairs, and reject the run if system load or
+within-run timing shows a regime change.
