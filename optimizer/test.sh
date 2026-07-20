@@ -126,7 +126,8 @@ match_count() {
     grep --count -- "${pattern}" "${input_file}" || true
 }
 
-full_output="${temporary_dir}/keyhole-full.ll"
+default_output="${temporary_dir}/keyhole-default.ll"
+all_output="${temporary_dir}/keyhole-all.ll"
 midpoint_output="${temporary_dir}/keyhole-midpoint.ll"
 slice_output="${temporary_dir}/keyhole-slice.ll"
 key_output="${temporary_dir}/keyhole-key-comparisons.ll"
@@ -142,7 +143,8 @@ ordering_call_contract_output="${temporary_dir}/keyhole-ordering-call-contract.l
 fake_ordering_output="${temporary_dir}/keyhole-fake-ordering.ll"
 interleaved_convergent_output="${temporary_dir}/keyhole-interleaved-convergent.ll"
 midpoint_trunc_contract_output="${temporary_dir}/keyhole-midpoint-trunc-contract.ll"
-run_keyhole_pipeline aco-passes "${full_output}"
+run_keyhole_pipeline aco-passes "${default_output}"
+run_keyhole_pipeline aco-all-passes "${all_output}"
 run_keyhole_pipeline aco-midpoint-only "${midpoint_output}"
 run_keyhole_pipeline aco-slice-comparison-only "${slice_output}"
 run_keyhole_pipeline aco-key-comparisons "${key_output}"
@@ -189,7 +191,12 @@ done
     --make-fake-scmp \
     > "${fake_ordering_output}"
 
-for transformed_output in "${full_output}" "${key_output}"; do
+[[ "$(match_count 'aco.midpoint.result = add nuw' "${default_output}")" == 0 ]]
+[[ "$(match_count '^aco.memcmp.check' "${default_output}")" == 0 ]]
+[[ "$(match_count '^aco.slice-cmp.check' "${default_output}")" == 0 ]]
+[[ "$(match_count '!aco.expanded' "${default_output}")" == 0 ]]
+
+for transformed_output in "${all_output}" "${key_output}"; do
     [[ "$(match_count 'aco.midpoint.result = add nuw' "${transformed_output}")" == 1 ]]
     [[ "$(match_count '^aco.memcmp.check' "${transformed_output}")" == 2 ]]
     [[ "$(match_count '^aco.slice-cmp.check' "${transformed_output}")" == 2 ]]
@@ -198,7 +205,7 @@ done
 
 memcmp_function="$(sed -n \
     '/^define i32 @memcmp_candidate/,/^}/p' \
-    "${full_output}")"
+    "${all_output}")"
 grep --quiet --fixed-strings \
     '%aco.memcmp.left.pointer = freeze ptr %left' \
     <<< "${memcmp_function}"
@@ -211,7 +218,7 @@ grep --quiet --fixed-strings \
 
 undef_pointer_function="$(sed -n \
     '/^define i32 @memcmp_undef_pointers/,/^}/p' \
-    "${full_output}")"
+    "${all_output}")"
 grep --quiet --fixed-strings \
     '%aco.memcmp.left.pointer = freeze ptr undef' \
     <<< "${undef_pointer_function}"
@@ -224,7 +231,7 @@ grep --quiet --fixed-strings \
 
 slice_function="$(sed -n \
     '/^define i8 @slice_compare_candidate/,/^}/p' \
-    "${full_output}")"
+    "${all_output}")"
 grep --quiet --fixed-strings 'aco.slice-cmp.check' <<< "${slice_function}"
 grep --quiet --fixed-strings \
     '%aco.slice-cmp.left.pointer = freeze ptr %left' \
@@ -236,25 +243,25 @@ grep --quiet --fixed-strings \
     'call i32 @memcmp(ptr %aco.slice-cmp.left.pointer, ptr %aco.slice-cmp.right.pointer' \
     <<< "${slice_function}"
 if grep --quiet --fixed-strings 'aco.scmp.nonless' <<< "${slice_function}"; then
-    echo "optimizer test: aggregate pipeline lowered scmp before the slice matcher" >&2
+    echo "optimizer test: all-passes pipeline lowered scmp before the slice matcher" >&2
     exit 1
 fi
 
 side_effect_function="$(sed -n \
     '/^define i8 @slice_compare_with_interleaved_side_effect/,/^}/p' \
-    "${full_output}")"
+    "${all_output}")"
 grep --quiet --fixed-strings 'aco.slice-cmp.check' <<< "${side_effect_function}"
 side_effect_join="$(sed -n \
     '/^aco.slice-cmp.join/,/^}/p' \
     <<< "${side_effect_function}")"
 grep --quiet --fixed-strings 'call void @side_effect()' \
     <<< "${side_effect_join}"
-[[ "$(match_count 'call void @side_effect()' "${full_output}")" == 1 ]]
+[[ "$(match_count 'call void @side_effect()' "${all_output}")" == 1 ]]
 
 for constrained_function_name in memcmp_convergent memcmp_musttail memcmp_notail; do
     constrained_function="$(sed -n \
         "/^define i32 @${constrained_function_name}/,/^}/p" \
-        "${full_output}")"
+        "${all_output}")"
     grep --quiet --fixed-strings 'call i32 @memcmp' \
         <<< "${constrained_function}"
     if grep --quiet --fixed-strings 'aco.memcmp.' \
@@ -383,7 +390,7 @@ fi
 [[ "$(match_count '^aco.slice-cmp.check' "${slice_output}")" == 2 ]]
 [[ "$(match_count '!aco.expanded' "${slice_output}")" == 4 ]]
 
-for transformed_output in "${full_output}" "${midpoint_output}" "${key_output}"; do
+for transformed_output in "${all_output}" "${midpoint_output}" "${key_output}"; do
     grep --quiet '^define i64 @unguarded_binary_search' "${transformed_output}"
     grep --quiet 'trunc nuw i128 %half.wide to i64' "${transformed_output}"
 done

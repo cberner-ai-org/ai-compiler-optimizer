@@ -10,12 +10,16 @@ The project builds an editable, pinned Rust compiler, attaches a loadable LLVM
 optimization pipeline, checks declarative rewrite obligations with a pinned
 Alive2 solver image, and compiles paired redb benchmarks with that pipeline
 disabled and enabled. Its safety-proven passes remove redundant signed three-way
-comparison normalization, add first-byte fast paths to
-`memcmp`-based byte-slice comparisons and narrow ordered binary-search
-midpoints from `i128` to `i64`. Exact LLVM source/target refinements are checked
-with pinned Alive2 before paired redb binaries are built. The longer seven-pair
-key-comparison attribution study did not reproduce the earlier 5% performance
-claim. See the signed
+comparison normalization, add first-byte fast paths to `memcmp`-based byte-slice
+comparisons, and narrow ordered binary-search midpoints from `i128` to `i64`.
+Exact LLVM source/target refinements are checked with pinned Alive2 before paired
+redb binaries are built. The default pipeline enables only signed-switch
+lowering. Midpoint narrowing and slice specialization remain explicit opt-ins:
+the latest exact-artifact ablation gave both negative marginal whole-process
+point estimates and found a robust nosync-write regression in the former full
+pipeline. A separate seven-pair run of the rebuilt signed-switch-only default
+measured +0.894% paired whole-process speedup, 95% CI [+0.189%, +1.599%]. See
+the signed
 [comparison report](docs/optimizations/scmp-switch-optimization-report.md), the
 [key-comparison report](docs/optimizations/redb-key-comparisons.md), and the
 [design document](docs/design.md) for the proof and integration boundaries.
@@ -121,15 +125,21 @@ official image acts only as the orchestrator. `with-compiler-variant baseline`
 sets `RUSTC` to the unmodified stage-1 compiler invocation;
 `with-compiler-variant optimized` selects `rustc-with-aco-passes`, which adds
 `-Zllvm-plugins=/opt/rust-custom/lib/libaco_optimizer.so` and
-`-Cpasses=aco-passes`. Three additional variants isolate the key-comparison
-rewrites without code-generation-visible identity flags:
+`-Cpasses=aco-passes`. The performance-gated `aco-passes` pipeline contains only
+signed three-way comparison switch lowering. Three additional variants retain
+the proved key-comparison rewrites for attribution without
+code-generation-visible identity flags:
 
 | Variant | LLVM pipeline | Enabled rewrites |
 | --- | --- | --- |
 | `midpoint` | `aco-midpoint-only` | ordered midpoint only |
 | `slice-comparison` | `aco-slice-comparison-only` | slice ordering and general `memcmp` fast paths |
 | `key-comparisons` | `aco-key-comparisons` | midpoint and slice comparison |
-| `optimized` | `aco-passes` | key comparisons, then signed three-way comparison switches |
+| `optimized` | `aco-passes` | signed three-way comparison switches only |
+
+The wrapper also accepts `aco-all-passes` for explicit experiments with the
+former midpoint + slice + signed-switch composition. It is not the default and
+has no dedicated benchmark selector mode.
 
 After assembling the toolchain, the image generates one compiler-artifact
 manifest and ID covering the compiler source identity, `rustc`,
@@ -153,9 +163,11 @@ The benchmark image build verifies the custom sysroot, runs redb's library
 tests in both compiler modes, and compiles a focused redb byte-slice probe from
 separate fresh baseline and optimized targets with tracing enabled. The
 baseline probe must emit no ACO trace, while the optimized probe must emit at
-least one transforming trace. The image then compiles one baseline and four
-candidate `redb_benchmark` executables. Mode-specific trace gates require the
-intended midpoint and slice rewrites and reject accidental cross-mode rewrites.
+least one signed-switch transformation and no keyhole trace. The image then
+compiles one baseline and four candidate `redb_benchmark` executables.
+Mode-specific trace gates require the intended rewrites and reject midpoint or
+slice rewrites in the default, as well as accidental cross-mode rewrites in the
+attribution artifacts.
 The baseline artifact uses the stage-1 compiler without custom pass flags;
 every candidate artifact uses the same compiler with its selected ACO pipeline
 enabled. Each timed benchmark build starts with an absent, mode-specific target
@@ -238,7 +250,7 @@ complete manifest and starting an experiment.
 - `third_party/rust`: editable Rust compiler submodule
 - `third_party/redb`: pinned benchmark submodule
 - `third_party/alive2`: pinned LLVM refinement checker submodule
-- `optimizer`: aggregate LLVM 22 new-pass-manager plugin and proof obligations
+- `optimizer`: performance-gated LLVM 22 new-pass-manager plugin and proof obligations
 - `optimizer/proofs`: declarative Alive2 candidate and scaffold obligations
 - `config/rust-bootstrap.toml`: stage-1 compiler build configuration
 - `config/redb-Cargo.lock`: pinned benchmark dependency graph

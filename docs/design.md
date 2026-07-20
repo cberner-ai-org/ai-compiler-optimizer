@@ -153,9 +153,12 @@ The current workflow pins Rust and redb as submodules and builds an editable sta
 the optimizer plugin in a Podman image. `make benchmark-image` runs redb's library tests and
 compiles `redb_benchmark` in five modes: baseline invokes the stage-1 compiler directly; midpoint,
 slice-comparison, key-comparisons, and optimized invoke that same compiler with independently
-selected custom pipelines. Cargo's event stream selects each resulting executable for the final
-runtime image. A provenance-bound runtime selector compares any one candidate with the shared
-baseline through the five-million-item load, read, removal, and compaction workload.
+selected custom pipelines. The optimized mode is the performance-gated default and enables only
+signed three-way comparison switch lowering. The other three candidate modes preserve proved but
+default-disabled keyhole rewrites for attribution. Cargo's event stream selects each resulting
+executable for the final runtime image. A provenance-bound runtime selector compares any one
+candidate with the shared baseline through the five-million-item load, read, removal, and compaction
+workload.
 
 The container base is selected by an immutable registry digest, and every apt installation resolves
 against a dated Debian snapshot. Both identities are centralized in `config/versions.env`, enforced
@@ -214,17 +217,18 @@ uncertainty, not only the harness's mean wall-time ratio.
 ## Optimizer integration scaffold
 
 rustc's existing `-Zllvm-plugins` hook loads `libaco_optimizer.so`, and `-Cpasses=aco-passes`
-appends the aggregate ACO pipeline to the per-module LLVM pipeline. The plugin also exposes
-`aco-midpoint-only`, `aco-slice-comparison-only`, and `aco-key-comparisons` for attribution.
-`addAcoPipeline` is the explicit ordering point for accepted custom passes. The aggregate runs the
-keyhole pass before the signed three-way comparison pass so the slice matcher can consume its exact
-`llvm.scmp` use chain before that intrinsic is lowered. Each transforms only exact accepted patterns
-and invalidates analyses only when it changes IR. The toolchain smoke enables trace output to prove
-that the pipeline is scheduled. A
+appends the default signed-switch-only ACO pipeline to the per-module LLVM pipeline. The plugin also
+exposes `aco-midpoint-only`, `aco-slice-comparison-only`, and `aco-key-comparisons` for attribution,
+plus `aco-all-passes` for explicit experiments with the former full composition. `addAcoPipeline`
+is the explicit ordering and policy point for custom passes. In `aco-all-passes`, the keyhole pass
+runs before signed-switch lowering so the slice matcher can consume its exact `llvm.scmp` use chain
+before that intrinsic is lowered. Each pass transforms only exact accepted patterns and invalidates
+analyses only when it changes IR. The toolchain smoke enables trace output and requires a
+successful plugin load while rejecting any default keyhole trace. A
 separate benchmark-image gate compiles a redb byte-slice probe from separate fresh baseline and
 optimized Cargo targets. The baseline must emit no ACO trace and the optimized build must emit a
-transforming trace. This proves both halves of the A/B boundary while normal benchmark builds remain
-untraced.
+signed-switch transforming trace with no keyhole trace. This proves both halves of the A/B boundary
+and the default-disable policy while normal benchmark builds remain untraced.
 
 The comparison pass freezes each `llvm.scmp` operand once before the staged less-than/equality
 branches. This preserves the single-use correlation of undef-capable SSA values when the replacement

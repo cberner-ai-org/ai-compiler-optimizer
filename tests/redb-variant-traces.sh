@@ -12,16 +12,46 @@ printf 'Finished release profile\n' > "${baseline_trace}"
 printf '%s\n' \
     'aco-keyhole: transformed 1 slice compare(s), 0 generic memcmp call(s), and 0 ordered midpoint(s) in redb_probe' \
     > "${optimized_trace}"
-"${verifier}" "${baseline_trace}" "${optimized_trace}" > /dev/null
+if "${verifier}" "${baseline_trace}" "${optimized_trace}" \
+    > "${fixture_root}/slice-enabled.log" 2>&1; then
+    echo "redb trace verifier accepted slice comparison in the default pipeline" >&2
+    exit 1
+fi
+grep --quiet --fixed-strings \
+    'default optimized unexpectedly scheduled disabled keyhole rewrites' \
+    "${fixture_root}/slice-enabled.log"
 
 printf '%s\n' \
     'aco-keyhole: transformed 0 slice compare(s), 0 generic memcmp call(s), and 2 ordered midpoint(s) in redb_probe' \
     > "${optimized_trace}"
-"${verifier}" "${baseline_trace}" "${optimized_trace}" > /dev/null
+if "${verifier}" "${baseline_trace}" "${optimized_trace}" \
+    > "${fixture_root}/midpoint-enabled.log" 2>&1; then
+    echo "redb trace verifier accepted midpoint narrowing in the default pipeline" >&2
+    exit 1
+fi
+grep --quiet --fixed-strings \
+    'default optimized unexpectedly scheduled disabled keyhole rewrites' \
+    "${fixture_root}/midpoint-enabled.log"
 
 printf 'aco-three-way-compare: transformed 2 switch(es) in redb_probe\n' \
     > "${optimized_trace}"
 "${verifier}" "${baseline_trace}" "${optimized_trace}" > /dev/null
+
+printf '%s\n' \
+    'aco-three-way-compare: transformed 2 switch(es) in redb_probe' \
+    'aco-keyhole: transformed 1 slice compare(s), 0 generic memcmp call(s), and 0 ordered midpoint(s) in redb_probe' \
+    > "${optimized_trace}"
+if "${verifier}" "${baseline_trace}" "${optimized_trace}" \
+    > "${fixture_root}/mixed-pipeline.log" 2>&1; then
+    echo "redb trace verifier accepted keyhole rewrites alongside the default pass" >&2
+    exit 1
+fi
+grep --quiet --fixed-strings \
+    'default optimized unexpectedly scheduled disabled keyhole rewrites' \
+    "${fixture_root}/mixed-pipeline.log"
+
+printf 'aco-three-way-compare: transformed 2 switch(es) in redb_probe\n' \
+    > "${optimized_trace}"
 
 printf 'aco-keyhole: ran on contaminated_baseline\n' >> "${baseline_trace}"
 if "${verifier}" "${baseline_trace}" "${optimized_trace}" \
@@ -34,14 +64,14 @@ grep --quiet --fixed-strings \
     "${fixture_root}/baseline-contamination.log"
 
 printf 'Finished release profile\n' > "${baseline_trace}"
-printf 'aco-keyhole: ran on redb_probe\n' > "${optimized_trace}"
+printf 'aco-three-way-compare: ran on redb_probe\n' > "${optimized_trace}"
 if "${verifier}" "${baseline_trace}" "${optimized_trace}" \
     > "${fixture_root}/missing-transformation.log" 2>&1; then
     echo "redb trace verifier accepted an optimized no-op trace" >&2
     exit 1
 fi
 grep --quiet --fixed-strings \
-    'optimized transformation count is not positive' \
+    'optimized signed-switch transformation count is not positive' \
     "${fixture_root}/missing-transformation.log"
 
 printf '%s\n' \
@@ -53,7 +83,7 @@ if "${verifier}" "${baseline_trace}" "${optimized_trace}" \
     exit 1
 fi
 grep --quiet --fixed-strings \
-    'optimized transformation count is not positive' \
+    'default optimized unexpectedly scheduled disabled keyhole rewrites' \
     "${fixture_root}/zero-transformations.log"
 
 echo "redb optimizer trace boundary regression passed"

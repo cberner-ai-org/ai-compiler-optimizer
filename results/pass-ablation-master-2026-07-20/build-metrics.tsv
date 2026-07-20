@@ -1,0 +1,6 @@
+variant	build_elapsed_ms	binary_size_bytes
+baseline	280538	59765240
+midpoint	284381	59766664
+slice-comparison	291135	59768680
+key-comparisons	294256	59770096
+optimized	289187	59768840

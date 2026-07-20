@@ -795,18 +795,19 @@ private:
 
 bool addAcoPipeline(llvm::ModulePassManager &ModulePasses,
                     llvm::StringRef Name) {
-  bool EnableThreeWayCompare = Name == "aco-passes";
+  bool EnableThreeWayCompare =
+      Name == "aco-passes" || Name == "aco-all-passes";
   bool EnableSliceComparisons =
-      Name == "aco-passes" || Name == "aco-slice-comparison-only" ||
-      Name == "aco-key-comparisons";
-  bool EnableMidpoints = Name == "aco-passes" || Name == "aco-midpoint-only" ||
-                         Name == "aco-key-comparisons";
+      Name == "aco-slice-comparison-only" || Name == "aco-key-comparisons" ||
+      Name == "aco-all-passes";
+  bool EnableMidpoints = Name == "aco-midpoint-only" ||
+                         Name == "aco-key-comparisons" ||
+                         Name == "aco-all-passes";
   if (!EnableThreeWayCompare && !EnableSliceComparisons && !EnableMidpoints)
     return false;
 
-  // The slice matcher consumes an llvm.scmp use chain. Run it before the
-  // general scmp switch lowering so the aggregate pipeline retains both
-  // independently proved optimizations.
+  // The opt-in all-passes pipeline runs the slice matcher before general scmp
+  // lowering because the matcher consumes the original llvm.scmp use chain.
   if (EnableSliceComparisons || EnableMidpoints)
     ModulePasses.addPass(llvm::createModuleToFunctionPassAdaptor(
         KeyholePass(EnableSliceComparisons, EnableMidpoints)));
@@ -818,7 +819,7 @@ bool addAcoPipeline(llvm::ModulePassManager &ModulePasses,
 
 void addAcoPasses(llvm::ModulePassManager &ModulePasses) {
   bool Added = addAcoPipeline(ModulePasses, "aco-passes");
-  assert(Added && "the aggregate ACO pipeline must exist");
+  assert(Added && "the default ACO pipeline must exist");
 }
 
 llvm::PassPluginLibraryInfo getPluginInfo() {

@@ -1,0 +1,6 @@
+variant	pipeline	sha256	build_elapsed_ms	build_change_vs_baseline_percent	binary_size_bytes	size_change_vs_baseline_bytes	size_change_vs_baseline_percent
+baseline	none	40bf2eb5690962e64dc3e7b42313d69b857b6ffab154b136c81524e06c0f3756	280538	+0.000	59765240	+0	+0.000
+midpoint	aco-midpoint-only	2c9c6fe68b313586ce0746c8c8a56179d5fe22d0645e32db666043933416ce2e	284381	+1.370	59766664	+1424	+0.002
+slice-comparison	aco-slice-comparison-only	3c0d4f648b124dea6e68fa0edfc07003af56180f9e4c926af2704b27c0f6543a	291135	+3.777	59768680	+3440	+0.006
+key-comparisons	aco-key-comparisons	b7d9caae1d613910ccf225e8253a889bfef24921cd76a5e3df7ee0434a19f30f	294256	+4.890	59770096	+4856	+0.008
+optimized	aco-passes	bed73dd459949c5f7b5b68b37b053b83f67c9d63983bd9dd87f20fd834e0b37b	289187	+3.083	59768840	+3600	+0.006

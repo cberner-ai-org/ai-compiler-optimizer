@@ -4,6 +4,13 @@ These are the retained inputs and generated summaries for the seven-pair
 2026-07-19 experiment documented in
 [`redb-key-comparisons.md`](../../redb-key-comparisons.md).
 
+Historical-status note: the exact hardened-artifact rerun requested below was
+completed on 2026-07-20. Its all-pass ablation is retained at
+`results/pass-ablation-master-2026-07-20/`, and the subsequent signed-switch-only
+default follow-up is at `results/default-scmp-2026-07-20/`. Statements below
+that a new run was required describe this older dataset's limitation; they are
+not the current project status.
+
 Each mode directory contains:
 
 - `console.log`: machine metadata, complete provenance, labeled benchmark

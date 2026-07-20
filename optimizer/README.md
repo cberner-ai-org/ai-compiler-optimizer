@@ -1,23 +1,31 @@
 # ACO optimizer plugin
 
-`OptimizerPlugin.cpp` defines the aggregate `aco-passes` LLVM new-pass-manager pipeline. Its
-`KeyholePass` expands eligible `memcmp` calls, specializes the slice-ordering use chain, and narrows
-ordered binary-search midpoints. The following `ThreeWayCompareSwitchPass` lowers a canonical signed
+`OptimizerPlugin.cpp` defines the default `aco-passes` LLVM new-pass-manager pipeline. It runs only
+`ThreeWayCompareSwitchPass`, which lowers a canonical signed
 `llvm.scmp.i8.i64` switch to staged less-than and equality branches. It freezes each reused operand
 once, repairs successor PHIs, and applies only when the default destination is unreachable. Each
 pass preserves every analysis only when it makes no change. Add future solver-proven passes to
-`addAcoPipeline` in their intended pipeline order. The aggregate schedules the keyhole pass first:
-the slice matcher needs the original `llvm.scmp` use chain before the comparison pass lowers it.
+`addAcoPipeline` only after performance evidence supports default enablement.
+
+`KeyholePass` expands eligible `memcmp` calls, specializes the slice-ordering use chain, and narrows
+ordered binary-search midpoints. Those rewrites remain proved and available for explicit
+experiments, but are disabled by default because the latest seven-pair redb ablation found negative
+marginal whole-process point estimates and a robust full-pipeline nosync-write regression.
 
 The same plugin exposes attribution pipelines that can be selected independently:
 
 - `aco-midpoint-only`: ordered midpoint narrowing only;
 - `aco-slice-comparison-only`: slice ordering plus eligible general `memcmp` fast paths;
 - `aco-key-comparisons`: both keyhole modes, without signed switch lowering; and
-- `aco-passes`: both keyhole modes followed by signed switch lowering.
+- `aco-all-passes`: both keyhole modes followed by signed switch lowering.
+
+`aco-passes` is the performance-gated default and enables signed switch lowering only. The explicit
+`aco-all-passes` pipeline preserves the former composition. It schedules the keyhole pass first
+because the slice matcher needs the original `llvm.scmp` use chain before the comparison pass lowers
+it.
 
 The container build compiles the plugin with the `llvm-config --cxxflags` from rustc's matching CI
-LLVM. `rustc-with-aco-passes` loads it with `-Zllvm-plugins` and appends the aggregate pipeline to
+LLVM. `rustc-with-aco-passes` loads it with `-Zllvm-plugins` and appends the default pipeline to
 rustc's per-module pipeline with `-Cpasses=aco-passes`. This keeps pass-only edits independent of
 the much larger stage-1 compiler build.
 
