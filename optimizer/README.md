@@ -47,17 +47,21 @@ while `hasUnsupportedCallControlContract` owns the control-placement boundary fo
 relocated by the slice rewrite. It admits only default-C calls without operand bundles or control
 contracts such as `convergent`, `musttail`, `notail`, `noreturn`, `returns_twice`, or
 `noduplicate`. An ordinary `tail` hint is not a control contract and is cleared from either
-relocated call. The memcmp matcher also requires call-site and declaration memory effects that
-permit argument-memory reads. It admits either no call-site return/parameter contracts or Rust's
-exact shape with `nonnull` on both pointer operands; a separate Alive2 obligation covers each shape.
+relocated call. The memcmp matcher requires every explicit call-site or declaration memory contract
+to describe read-only argument memory. An absent memory attribute leaves the recognized libc
+semantics in force; explicit write or non-argument effects are rejected. It admits either no
+call-site return/parameter contracts or Rust's exact shape with `nonnull` on both pointer operands;
+a separate Alive2 obligation covers each shape.
 Every other call-site contract is rejected, and the declaration may retain only its capture
 contract. The proved memcmp domain is little-endian, 64-bit, address-space-zero, with an `i64`
 length.
 
 Because specialization moves the comparison chain behind the equal-byte branch, the rewrite sinks
-unrelated instructions between `memcmp` and `llvm.scmp` to the shared continuation. Adversarial
-fixtures verify that an interleaved side-effecting call remains unconditional and executes exactly
-once, run verifier-valid `musttail`, `notail`, and convergent ordering calls through the public
-plugin with `-verify-each`, and verify that an ordinary ordering `tail` hint is safely cleared.
-Additional verifier-backed fixtures reject unproved argument contracts and call/declaration memory
-effects that do not permit reads through argument pointers.
+unrelated instructions between `memcmp` and `llvm.scmp` to the shared continuation. Eligibility
+requires every sunk operand to dominate the new branch and rejects interleaved calls with
+control-placement contracts such as `convergent`. Adversarial fixtures verify that an ordinary
+interleaved side-effecting call remains unconditional and executes exactly once, run verifier-valid
+`musttail`, `notail`, and convergent ordering calls through the public plugin with `-verify-each`,
+and verify that an ordinary ordering `tail` hint is safely cleared. Additional verifier-backed
+fixtures reject unproved argument contracts and call/declaration memory effects outside read-only
+argument memory.

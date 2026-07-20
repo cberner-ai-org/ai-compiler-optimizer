@@ -102,6 +102,7 @@ The replacement is:
 
 The matcher accepts only the exact two-PHI binary-search loop where:
 
+- the narrowing cast is `trunc nuw i128 ... to i64` without `nsw`;
 - the initial minimum is zero;
 - entry is guarded by a nonzero initial maximum, directly or through a
   one-block preheader;
@@ -220,6 +221,9 @@ the known-inequivalent and unfrozen negative controls.
   call that must remain in the shared continuation after specialization. It
   also contains `convergent`, `musttail`, and `notail` memcmp calls that must
   remain unchanged.
+- Signed-wrap midpoint fixtures preserve both `trunc nsw` and `trunc nuw nsw`
+  near misses, binding the matcher to the exact `trunc nuw` source proved by
+  Alive2.
 - `optimizer/tests/keyhole-unproved-memcmp-input.ll` exercises the unproved
   i686/i32 ABI and verifies that no memcmp expansion is emitted.
 - `optimizer/tests/keyhole-constrained-ordering-input.ll` contains
@@ -233,9 +237,11 @@ the known-inequivalent and unfrozen negative controls.
   structural driver renames the verified fixture through LLVM's API before
   checking that the exact-name guard remains fail closed.
 - The argument- and memory-contract fixtures run under `-verify-each`, reject
-  partial `nonnull`, `noundef`, dereferenceability, alignment, and incompatible
-  call/declaration memory effects, and retain the exact two-pointer `nonnull`
-  and `argmem: read` cases.
+  partial `nonnull`, `noundef`, dereferenceability, alignment, read-write or
+  non-argument call/declaration memory effects, and retain the exact
+  two-pointer `nonnull` and `argmem: read` cases. A separate relocation fixture
+  rejects an interleaved `convergent` call while the ordinary side-effect case
+  remains in the shared continuation.
 - Additional fixtures leave result-constraining `memcmp` metadata and a
   module-defined `memcmp` body untouched. An explicit `ptr undef` positive case
   checks that both generated loads and the retained call share each frozen
