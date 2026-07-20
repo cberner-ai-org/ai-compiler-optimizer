@@ -8,6 +8,10 @@ undef_proof="${repo_root}/optimizer/proofs/scmp-i64-switch-undef-correlation.opt
 unfrozen_regression="${repo_root}/tests/alive2/00-scmp-i64-switch-unfrozen.opt"
 memcmp_proof="${repo_root}/optimizer/proofs/memcmp-first-byte.srctgt.ll"
 memcmp_contract_proof="${repo_root}/optimizer/proofs/memcmp-first-byte-call-attrs.srctgt.ll"
+pointer_freeze_proof="${repo_root}/optimizer/proofs/single-use-pointer-freeze.srctgt.ll"
+slice_equal_proof="${repo_root}/optimizer/proofs/slice-order-equal-after-memcmp-expansion.srctgt.ll"
+slice_unequal_proof="${repo_root}/optimizer/proofs/slice-order-unequal-after-memcmp-expansion.srctgt.ll"
+slice_zero_proof="${repo_root}/optimizer/proofs/slice-order-zero-after-memcmp-expansion.srctgt.ll"
 
 for implementation_fragment in \
     'Intrinsic::scmp' \
@@ -37,7 +41,15 @@ for implementation_fragment in \
     'isProvenMemcmpCall' \
     'hasUnsupportedCallControlContract(Call)' \
     'hasUnsupportedCallControlContract(*Ordering)' \
+    'hasUnsupportedCallMetadataContract(Call)' \
+    'hasUnsupportedCallMetadataContract(*Ordering)' \
     'hasUnsupportedMemcmpAttributeContract(Call, *Callee)' \
+    'hasUnsupportedOrderingAttributeContract(*Ordering,' \
+    'OrderingFunction->getIntrinsicID() != llvm::Intrinsic::scmp' \
+    'OrderingFunction->getName() != "llvm.scmp.i8.i64"' \
+    'llvm::Intrinsic::getAttributes(' \
+    '!Callee->isDeclaration()' \
+    '!Callee->hasExternalLinkage()' \
     'Call.getAttributes().getParamAttrs(0)' \
     'Call.getAttributes().getParamAttrs(1)' \
     'Call.getAttributes().getParamAttrs(2)' \
@@ -58,6 +70,14 @@ for implementation_fragment in \
     'Call.hasFnAttr(llvm::Attribute::NoReturn)' \
     'Call.hasFnAttr(llvm::Attribute::ReturnsTwice)' \
     'Call.hasFnAttr(llvm::Attribute::NoDuplicate)' \
+    'Memcmp.getArgOperand(0), "aco.slice-cmp.left.pointer")' \
+    'Memcmp.getArgOperand(1), "aco.slice-cmp.right.pointer")' \
+    'Call.getArgOperand(0), "aco.memcmp.left.pointer")' \
+    'Call.getArgOperand(1), "aco.memcmp.right.pointer")' \
+    'Memcmp.setArgOperand(0, FrozenLeftPointer)' \
+    'Memcmp.setArgOperand(1, FrozenRightPointer)' \
+    'Call.setArgOperand(0, FrozenLeftPointer)' \
+    'Call.setArgOperand(1, FrozenRightPointer)' \
     '!Layout.isLittleEndian()' \
     'Layout.getPointerSizeInBits(0) != 64' \
     'isIntegerTy(64)' \
@@ -70,10 +90,12 @@ for implementation_fragment in \
 done
 
 for proof_fragment in \
-    'define i32 @src(ptr captures(none) %left' \
+    'define i32 @src(ptr noundef captures(none) %left' \
     '%result = call i32 @memcmp(ptr nonnull %left, ptr nonnull %right, i64 %length)' \
-    'define i32 @tgt(ptr captures(none) %left' \
-    '%slow_result = call i32 @memcmp(ptr nonnull %left, ptr nonnull %right, i64 %length_frozen)' \
+    'define i32 @tgt(ptr noundef captures(none) %left' \
+    '%left_pointer = freeze ptr %left' \
+    '%right_pointer = freeze ptr %right' \
+    '%slow_result = call i32 @memcmp(ptr nonnull %left_pointer, ptr nonnull %right_pointer, i64 %length_frozen)' \
     'declare i32 @memcmp(ptr captures(none), ptr captures(none), i64) memory(argmem: read)'; do
     rg --quiet --fixed-strings "${proof_fragment}" "${memcmp_contract_proof}" || {
         echo "optimizer proof consistency: memcmp contract proof is missing ${proof_fragment}" >&2
@@ -83,14 +105,45 @@ done
 
 for proof_fragment in \
     'target datalayout = "e-p:64:64:64"' \
-    'define i32 @src(ptr captures(none) %left, ptr captures(none) %right, i64 %length)' \
+    'define i32 @src(ptr noundef captures(none) %left, ptr noundef captures(none) %right, i64 %length)' \
     '%result = call i32 @memcmp(ptr %left, ptr %right, i64 %length)' \
-    'define i32 @tgt(ptr captures(none) %left, ptr captures(none) %right, i64 %length)' \
+    'define i32 @tgt(ptr noundef captures(none) %left, ptr noundef captures(none) %right, i64 %length)' \
+    '%left_pointer = freeze ptr %left' \
+    '%right_pointer = freeze ptr %right' \
+    '%slow_result = call i32 @memcmp(ptr %left_pointer, ptr %right_pointer, i64 %length_frozen)' \
     'declare i32 @memcmp(ptr captures(none), ptr captures(none), i64)'; do
     rg --quiet --fixed-strings "${proof_fragment}" "${memcmp_proof}" || {
         echo "optimizer proof consistency: memcmp proof is missing ${proof_fragment}" >&2
         exit 1
     }
+done
+
+for proof_fragment in \
+    'define ptr @src(ptr %pointer)' \
+    'ret ptr %pointer' \
+    '%frozen = freeze ptr %pointer' \
+    'ret ptr %frozen'; do
+    rg --quiet --fixed-strings "${proof_fragment}" "${pointer_freeze_proof}" || {
+        echo \
+            "optimizer proof consistency: single-use pointer-freeze proof is missing ${proof_fragment}" \
+            >&2
+        exit 1
+    }
+done
+
+for slice_proof in \
+    "${slice_equal_proof}" \
+    "${slice_unequal_proof}" \
+    "${slice_zero_proof}"; do
+    for proof_fragment in \
+        'ptr noundef captures(none) %left' \
+        'ptr noundef captures(none) %right' \
+        'ptr %left, ptr %right, i64 %length_frozen'; do
+        rg --quiet --fixed-strings "${proof_fragment}" "${slice_proof}" || {
+            echo "optimizer proof consistency: slice proof is missing ${proof_fragment}" >&2
+            exit 1
+        }
+    done
 done
 
 for proof_fragment in \

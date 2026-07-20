@@ -1,6 +1,7 @@
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/IR/PassManager.h"
+#include "llvm/IR/Verifier.h"
 #include "llvm/IRReader/IRReader.h"
 #include "llvm/Passes/PassBuilder.h"
 #include "llvm/Support/SourceMgr.h"
@@ -11,8 +12,9 @@ bool addAcoPipeline(llvm::ModulePassManager &, llvm::StringRef);
 }
 
 int main(int ArgumentCount, char **Arguments) {
-  if (ArgumentCount != 3) {
-    llvm::errs() << "usage: aco-optimizer-test-driver INPUT.ll PIPELINE\n";
+  if (ArgumentCount != 3 && ArgumentCount != 4) {
+    llvm::errs() << "usage: aco-optimizer-test-driver INPUT.ll PIPELINE "
+                    "[--make-fake-scmp]\n";
     return 2;
   }
 
@@ -23,6 +25,25 @@ int main(int ArgumentCount, char **Arguments) {
   if (!Module) {
     Error.print(Arguments[0], llvm::errs());
     return 1;
+  }
+  if (llvm::verifyModule(*Module, &llvm::errs()))
+    return 1;
+
+  bool MakeFakeScmp = ArgumentCount == 4;
+  if (MakeFakeScmp) {
+    if (llvm::StringRef(Arguments[3]) != "--make-fake-scmp") {
+      llvm::errs() << "unknown test mutation: " << Arguments[3] << '\n';
+      return 2;
+    }
+    llvm::Function *Ordering = Module->getFunction("llvm.scmp.i8.i64");
+    if (!Ordering) {
+      llvm::errs() << "test mutation requires llvm.scmp.i8.i64\n";
+      return 2;
+    }
+    // LLVM's parser canonicalizes llvm.scmp overload suffixes and its verifier
+    // rejects a renamed intrinsic. Mutate only after verifying the fixture so
+    // this structural test can still exercise the matcher's name boundary.
+    Ordering->setName("llvm.scmp.i8.i64.fake");
   }
 
   llvm::LoopAnalysisManager LoopAnalyses;
@@ -48,5 +69,7 @@ int main(int ArgumentCount, char **Arguments) {
   // A compiler pipeline may contain an extension point more than once. Running
   // the pass twice makes its idempotence part of the focused regression test.
   Passes.run(*Module, ModuleAnalyses);
+  if (!MakeFakeScmp && llvm::verifyModule(*Module, &llvm::errs()))
+    return 1;
   Module->print(llvm::outs(), nullptr);
 }

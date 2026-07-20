@@ -135,6 +135,10 @@ argument_contract_output="${temporary_dir}/keyhole-argument-contract.ll"
 call_memory_contract_output="${temporary_dir}/keyhole-call-memory-contract.ll"
 declaration_memory_contract_output="${temporary_dir}/keyhole-declaration-memory-contract.ll"
 declaration_argument_contract_output="${temporary_dir}/keyhole-declaration-argument-contract.ll"
+semantic_metadata_output="${temporary_dir}/keyhole-semantic-metadata.ll"
+local_memcmp_output="${temporary_dir}/keyhole-local-memcmp.ll"
+ordering_call_contract_output="${temporary_dir}/keyhole-ordering-call-contract.ll"
+fake_ordering_output="${temporary_dir}/keyhole-fake-ordering.ll"
 run_keyhole_pipeline aco-passes "${full_output}"
 run_keyhole_pipeline aco-midpoint-only "${midpoint_output}"
 run_keyhole_pipeline aco-slice-comparison-only "${slice_output}"
@@ -147,7 +151,10 @@ for contract_fixture in \
     argument-contract \
     call-memory-contract \
     declaration-argument-contract \
-    declaration-memory-contract; do
+    declaration-memory-contract \
+    semantic-metadata \
+    local-memcmp \
+    ordering-call-contract; do
     input_name="keyhole-${contract_fixture}-input.ll"
     output_name="${temporary_dir}/keyhole-${contract_fixture}.ll"
     "${OPT}" \
@@ -158,18 +165,58 @@ for contract_fixture in \
         "${source_dir}/tests/${input_name}" \
         -o "${output_name}"
 done
+"${temporary_dir}/aco-optimizer-test-driver" \
+    "${source_dir}/tests/keyhole-fake-ordering-input.ll" \
+    aco-slice-comparison-only \
+    --make-fake-scmp \
+    > "${fake_ordering_output}"
 
 for transformed_output in "${full_output}" "${key_output}"; do
     [[ "$(match_count 'aco.midpoint.result = add nuw' "${transformed_output}")" == 1 ]]
-    [[ "$(match_count '^aco.memcmp.check' "${transformed_output}")" == 1 ]]
+    [[ "$(match_count '^aco.memcmp.check' "${transformed_output}")" == 2 ]]
     [[ "$(match_count '^aco.slice-cmp.check' "${transformed_output}")" == 2 ]]
-    [[ "$(match_count '!aco.expanded' "${transformed_output}")" == 3 ]]
+    [[ "$(match_count '!aco.expanded' "${transformed_output}")" == 4 ]]
 done
+
+memcmp_function="$(sed -n \
+    '/^define i32 @memcmp_candidate/,/^}/p' \
+    "${full_output}")"
+grep --quiet --fixed-strings \
+    '%aco.memcmp.left.pointer = freeze ptr %left' \
+    <<< "${memcmp_function}"
+grep --quiet --fixed-strings \
+    '%aco.memcmp.right.pointer = freeze ptr %right' \
+    <<< "${memcmp_function}"
+grep --quiet --fixed-strings \
+    'call i32 @memcmp(ptr %aco.memcmp.left.pointer, ptr %aco.memcmp.right.pointer' \
+    <<< "${memcmp_function}"
+
+undef_pointer_function="$(sed -n \
+    '/^define i32 @memcmp_undef_pointers/,/^}/p' \
+    "${full_output}")"
+grep --quiet --fixed-strings \
+    '%aco.memcmp.left.pointer = freeze ptr undef' \
+    <<< "${undef_pointer_function}"
+grep --quiet --fixed-strings \
+    '%aco.memcmp.right.pointer = freeze ptr undef' \
+    <<< "${undef_pointer_function}"
+grep --quiet --fixed-strings \
+    'call i32 @memcmp(ptr %aco.memcmp.left.pointer, ptr %aco.memcmp.right.pointer' \
+    <<< "${undef_pointer_function}"
 
 slice_function="$(sed -n \
     '/^define i8 @slice_compare_candidate/,/^}/p' \
     "${full_output}")"
 grep --quiet --fixed-strings 'aco.slice-cmp.check' <<< "${slice_function}"
+grep --quiet --fixed-strings \
+    '%aco.slice-cmp.left.pointer = freeze ptr %left' \
+    <<< "${slice_function}"
+grep --quiet --fixed-strings \
+    '%aco.slice-cmp.right.pointer = freeze ptr %right' \
+    <<< "${slice_function}"
+grep --quiet --fixed-strings \
+    'call i32 @memcmp(ptr %aco.slice-cmp.left.pointer, ptr %aco.slice-cmp.right.pointer' \
+    <<< "${slice_function}"
 if grep --quiet --fixed-strings 'aco.scmp.nonless' <<< "${slice_function}"; then
     echo "optimizer test: aggregate pipeline lowered scmp before the slice matcher" >&2
     exit 1
@@ -257,6 +304,27 @@ if grep --quiet --fixed-strings 'aco.memcmp.' \
     echo 'optimizer test: transformed memcmp with declaration argument contract' >&2
     exit 1
 fi
+if grep --quiet --fixed-strings 'aco.memcmp.' \
+    "${semantic_metadata_output}"; then
+    echo 'optimizer test: transformed memcmp with semantic result metadata' >&2
+    exit 1
+fi
+if grep --quiet --fixed-strings 'aco.memcmp.' \
+    "${local_memcmp_output}"; then
+    echo 'optimizer test: transformed module-defined memcmp' >&2
+    exit 1
+fi
+for ordering_contract_output in \
+    "${ordering_call_contract_output}" \
+    "${fake_ordering_output}"; do
+    if grep --quiet --fixed-strings 'aco.slice-cmp.' \
+        "${ordering_contract_output}"; then
+        echo "optimizer test: specialized an unproved ordering call in ${ordering_contract_output}" >&2
+        exit 1
+    fi
+done
+grep --quiet --fixed-strings '@llvm.scmp.i8.i64.fake' \
+    "${fake_ordering_output}"
 
 [[ "$(match_count 'aco.midpoint.result = add nuw' "${midpoint_output}")" == 1 ]]
 [[ "$(match_count '^aco.memcmp.check' "${midpoint_output}")" == 0 ]]
@@ -264,9 +332,9 @@ fi
 [[ "$(match_count '!aco.expanded' "${midpoint_output}")" == 0 ]]
 
 [[ "$(match_count 'aco.midpoint.result = add nuw' "${slice_output}")" == 0 ]]
-[[ "$(match_count '^aco.memcmp.check' "${slice_output}")" == 1 ]]
+[[ "$(match_count '^aco.memcmp.check' "${slice_output}")" == 2 ]]
 [[ "$(match_count '^aco.slice-cmp.check' "${slice_output}")" == 2 ]]
-[[ "$(match_count '!aco.expanded' "${slice_output}")" == 3 ]]
+[[ "$(match_count '!aco.expanded' "${slice_output}")" == 4 ]]
 
 for transformed_output in "${full_output}" "${midpoint_output}" "${key_output}"; do
     grep --quiet '^define i64 @unguarded_binary_search' "${transformed_output}"

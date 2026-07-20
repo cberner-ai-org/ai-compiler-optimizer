@@ -1,4 +1,5 @@
 #include "llvm/Config/llvm-config.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/IR/Attributes.h"
@@ -8,6 +9,7 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/IntrinsicInst.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/Module.h"
@@ -216,6 +218,16 @@ private:
     return false;
   }
 
+  static bool hasUnsupportedCallMetadataContract(
+      const llvm::CallInst &Call) {
+    // A bypassed call's metadata can constrain its result or memory behavior.
+    // Debug locations alone are observationally inert; keep every other
+    // attachment outside the proof boundary unless it is modeled explicitly.
+    llvm::SmallVector<std::pair<unsigned, llvm::MDNode *>, 4> Metadata;
+    Call.getAllMetadataOtherThanDebugLoc(Metadata);
+    return !Metadata.empty();
+  }
+
   static bool hasUnsupportedMemcmpAttributeContract(
       const llvm::CallInst &Call, const llvm::Function &Callee) {
     // Keep the accepted attribute surface identical to the two tracked memcmp
@@ -257,6 +269,36 @@ private:
     return false;
   }
 
+  static bool hasUnsupportedOrderingAttributeContract(
+      const llvm::CallInst &Call, const llvm::Function &Callee) {
+    // The canonical scmp declaration has LLVM's intrinsic range attribute.
+    // If declaration contracts are materialized, require that exact set;
+    // reject every call-site return/parameter contract the fast path could
+    // bypass.
+    if (Call.getAttributes().getRetAttrs().hasAttributes())
+      return true;
+    for (unsigned Index = 0; Index != Call.arg_size(); ++Index) {
+      if (Call.getAttributes().getParamAttrs(Index).hasAttributes())
+        return true;
+    }
+
+    llvm::AttributeList Expected = llvm::Intrinsic::getAttributes(
+        Call.getContext(), llvm::Intrinsic::scmp, Callee.getFunctionType());
+    llvm::AttributeSet ReturnAttributes =
+        Callee.getAttributes().getRetAttrs();
+    if (ReturnAttributes.hasAttributes() &&
+        ReturnAttributes != Expected.getRetAttrs())
+      return true;
+    for (unsigned Index = 0; Index != Call.arg_size(); ++Index) {
+      llvm::AttributeSet ParameterAttributes =
+          Callee.getAttributes().getParamAttrs(Index);
+      if (ParameterAttributes.hasAttributes() &&
+          ParameterAttributes != Expected.getParamAttrs(Index))
+        return true;
+    }
+    return false;
+  }
+
   static bool permitsProvenMemcmpReads(llvm::MemoryEffects Effects) {
     return llvm::isRefSet(
         Effects.getModRef(llvm::MemoryEffects::Location::ArgMem));
@@ -270,12 +312,14 @@ private:
     // semantics and target domain are represented by that proof.
     if (Call.arg_size() != 3 ||
         Call.getType() != llvm::Type::getInt32Ty(Call.getContext()) ||
-        Call.getMetadata("aco.expanded") ||
+        hasUnsupportedCallMetadataContract(Call) ||
         hasUnsupportedCallControlContract(Call))
       return false;
 
     const llvm::Function *Callee = Call.getCalledFunction();
-    if (!Callee || hasUnsupportedMemcmpAttributeContract(Call, *Callee) ||
+    if (!Callee || !Callee->isDeclaration() ||
+        !Callee->hasExternalLinkage() ||
+        hasUnsupportedMemcmpAttributeContract(Call, *Callee) ||
         !permitsProvenMemcmpReads(
             Call.getAttributes().getMemoryEffects()) ||
         !permitsProvenMemcmpReads(Callee->getMemoryEffects()))
@@ -336,11 +380,15 @@ private:
     if (!LengthDifference ||
         LengthDifference->getOpcode() != llvm::Instruction::Sub ||
         !LengthDifference->hasOneUse() || !Ordering || !OrderingFunction ||
-        !OrderingFunction->getName().starts_with("llvm.scmp.i8.") ||
+        OrderingFunction->getIntrinsicID() != llvm::Intrinsic::scmp ||
+        OrderingFunction->getName() != "llvm.scmp.i8.i64" ||
         Ordering->arg_size() != 2 || Ordering->getArgOperand(0) != Select ||
         !isZero(Ordering->getArgOperand(1)) ||
         !Ordering->getType()->isIntegerTy(8) ||
-        hasUnsupportedCallControlContract(*Ordering))
+        hasUnsupportedCallControlContract(*Ordering) ||
+        hasUnsupportedCallMetadataContract(*Ordering) ||
+        hasUnsupportedOrderingAttributeContract(*Ordering,
+                                                *OrderingFunction))
       return nullptr;
 
     llvm::BasicBlock *Block = Memcmp.getParent();
@@ -573,6 +621,10 @@ private:
 
     llvm::IRBuilder<> EntryBuilder(EntryBlock->getTerminator());
     EntryBuilder.SetCurrentDebugLocation(DebugLocation);
+    llvm::Value *FrozenLeftPointer = EntryBuilder.CreateFreeze(
+        Memcmp.getArgOperand(0), "aco.slice-cmp.left.pointer");
+    llvm::Value *FrozenRightPointer = EntryBuilder.CreateFreeze(
+        Memcmp.getArgOperand(1), "aco.slice-cmp.right.pointer");
     llvm::Value *FrozenLength = EntryBuilder.CreateFreeze(
         Memcmp.getArgOperand(2), "aco.slice-cmp.length");
     llvm::Value *Nonempty = EntryBuilder.CreateICmpNE(
@@ -585,10 +637,10 @@ private:
     llvm::IRBuilder<> CheckBuilder(CheckBlock);
     CheckBuilder.SetCurrentDebugLocation(DebugLocation);
     llvm::Value *LeftByte = CheckBuilder.CreateLoad(
-        llvm::Type::getInt8Ty(Context), Memcmp.getArgOperand(0),
+        llvm::Type::getInt8Ty(Context), FrozenLeftPointer,
         "aco.slice-cmp.left");
     llvm::Value *RightByte = CheckBuilder.CreateLoad(
-        llvm::Type::getInt8Ty(Context), Memcmp.getArgOperand(1),
+        llvm::Type::getInt8Ty(Context), FrozenRightPointer,
         "aco.slice-cmp.right");
     llvm::Value *FrozenLeft =
         CheckBuilder.CreateFreeze(LeftByte, "aco.slice-cmp.left.frozen");
@@ -608,6 +660,8 @@ private:
         "aco.slice-cmp.ordering");
     FastBuilder.CreateBr(JoinBlock);
 
+    Memcmp.setArgOperand(0, FrozenLeftPointer);
+    Memcmp.setArgOperand(1, FrozenRightPointer);
     Memcmp.setArgOperand(2, FrozenLength);
     Memcmp.setTailCallKind(llvm::CallInst::TCK_None);
     Memcmp.setMetadata("aco.expanded", llvm::MDNode::get(Context, {}));
@@ -647,6 +701,10 @@ private:
 
     llvm::IRBuilder<> EntryBuilder(EntryBlock->getTerminator());
     EntryBuilder.SetCurrentDebugLocation(DebugLocation);
+    llvm::Value *FrozenLeftPointer = EntryBuilder.CreateFreeze(
+        Call.getArgOperand(0), "aco.memcmp.left.pointer");
+    llvm::Value *FrozenRightPointer = EntryBuilder.CreateFreeze(
+        Call.getArgOperand(1), "aco.memcmp.right.pointer");
     llvm::Value *FrozenLength = EntryBuilder.CreateFreeze(
         Call.getArgOperand(2), "aco.memcmp.length");
     llvm::Value *Nonempty = EntryBuilder.CreateICmpNE(
@@ -659,10 +717,10 @@ private:
     llvm::IRBuilder<> CheckBuilder(CheckBlock);
     CheckBuilder.SetCurrentDebugLocation(DebugLocation);
     llvm::Value *LeftByte = CheckBuilder.CreateLoad(
-        llvm::Type::getInt8Ty(Context), Call.getArgOperand(0),
+        llvm::Type::getInt8Ty(Context), FrozenLeftPointer,
         "aco.memcmp.left");
     llvm::Value *RightByte = CheckBuilder.CreateLoad(
-        llvm::Type::getInt8Ty(Context), Call.getArgOperand(1),
+        llvm::Type::getInt8Ty(Context), FrozenRightPointer,
         "aco.memcmp.right");
     llvm::Value *FrozenLeft =
         CheckBuilder.CreateFreeze(LeftByte, "aco.memcmp.left.frozen");
@@ -682,6 +740,8 @@ private:
         ExtendedLeft, ExtendedRight, "aco.memcmp.difference");
     FastBuilder.CreateBr(JoinBlock);
 
+    Call.setArgOperand(0, FrozenLeftPointer);
+    Call.setArgOperand(1, FrozenRightPointer);
     Call.setArgOperand(2, FrozenLength);
     Call.setTailCallKind(llvm::CallInst::TCK_None);
     Call.setMetadata("aco.expanded", llvm::MDNode::get(Context, {}));

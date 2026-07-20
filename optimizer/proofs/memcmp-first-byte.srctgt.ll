@@ -1,27 +1,30 @@
 target datalayout = "e-p:64:64:64"
 
-define i32 @src(ptr captures(none) %left, ptr captures(none) %right, i64 %length) {
+; The pointer-freeze obligation establishes the noundef domain used here.
+define i32 @src(ptr noundef captures(none) %left, ptr noundef captures(none) %right, i64 %length) {
 entry:
   %result = call i32 @memcmp(ptr %left, ptr %right, i64 %length)
   ret i32 %result
 }
 
-define i32 @tgt(ptr captures(none) %left, ptr captures(none) %right, i64 %length) {
+define i32 @tgt(ptr noundef captures(none) %left, ptr noundef captures(none) %right, i64 %length) {
 entry:
+  %left_pointer = freeze ptr %left
+  %right_pointer = freeze ptr %right
   %length_frozen = freeze i64 %length
   %nonempty = icmp ne i64 %length_frozen, 0
   br i1 %nonempty, label %check_first, label %join
 
 check_first:
-  %left_byte = load i8, ptr %left, align 1
-  %right_byte = load i8, ptr %right, align 1
+  %left_byte = load i8, ptr %left_pointer, align 1
+  %right_byte = load i8, ptr %right_pointer, align 1
   %left_frozen = freeze i8 %left_byte
   %right_frozen = freeze i8 %right_byte
   %first_equal = icmp eq i8 %left_frozen, %right_frozen
   br i1 %first_equal, label %slow, label %fast
 
 slow:
-  %slow_result = call i32 @memcmp(ptr %left, ptr %right, i64 %length_frozen)
+  %slow_result = call i32 @memcmp(ptr %left_pointer, ptr %right_pointer, i64 %length_frozen)
   br label %join
 
 fast:
