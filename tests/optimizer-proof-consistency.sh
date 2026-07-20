@@ -12,6 +12,7 @@ pointer_freeze_proof="${repo_root}/optimizer/proofs/single-use-pointer-freeze.sr
 slice_equal_proof="${repo_root}/optimizer/proofs/slice-order-equal-after-memcmp-expansion.srctgt.ll"
 slice_unequal_proof="${repo_root}/optimizer/proofs/slice-order-unequal-after-memcmp-expansion.srctgt.ll"
 slice_zero_proof="${repo_root}/optimizer/proofs/slice-order-zero-after-memcmp-expansion.srctgt.ll"
+midpoint_proof="${repo_root}/optimizer/proofs/narrow-ordered-midpoint.srctgt.ll"
 
 for implementation_fragment in \
     'Intrinsic::scmp' \
@@ -58,8 +59,10 @@ for implementation_fragment in \
     'Callee.getAttributes().getParamAttrs(Index)' \
     'llvm::Attribute::NonNull' \
     'llvm::Attribute::Captures' \
-    'Call.getAttributes().getMemoryEffects()' \
-    'Callee->getMemoryEffects()' \
+    'Attributes.hasFnAttr(llvm::Attribute::Memory)' \
+    'Attributes.getMemoryEffects()' \
+    'Effects.onlyReadsMemory()' \
+    'Effects.onlyAccessesArgPointees()' \
     'llvm::MemoryEffects::Location::ArgMem' \
     'llvm::isRefSet' \
     'Call.isConvergent()' \
@@ -70,6 +73,7 @@ for implementation_fragment in \
     'Call.hasFnAttr(llvm::Attribute::NoReturn)' \
     'Call.hasFnAttr(llvm::Attribute::ReturnsTwice)' \
     'Call.hasFnAttr(llvm::Attribute::NoDuplicate)' \
+    'hasUnsupportedCallControlContract(*InterleavedCall)' \
     'Memcmp.getArgOperand(0), "aco.slice-cmp.left.pointer")' \
     'Memcmp.getArgOperand(1), "aco.slice-cmp.right.pointer")' \
     'Call.getArgOperand(0), "aco.memcmp.left.pointer")' \
@@ -85,6 +89,28 @@ for implementation_fragment in \
     'RightPointer->getAddressSpace() == 0'; do
     rg --quiet --fixed-strings "${implementation_fragment}" "${implementation}" || {
         echo "optimizer proof consistency: memcmp matcher is missing ${implementation_fragment}" >&2
+        exit 1
+    }
+done
+
+for implementation_fragment in \
+    'Trunc.hasNoUnsignedWrap()' \
+    'Trunc.hasNoSignedWrap()' \
+    'Trunc.getSrcTy()->isIntegerTy(128)' \
+    'Trunc.getDestTy()->isIntegerTy(64)'; do
+    rg --quiet --fixed-strings "${implementation_fragment}" "${implementation}" || {
+        echo "optimizer proof consistency: midpoint matcher is missing ${implementation_fragment}" >&2
+        exit 1
+    }
+done
+
+for proof_fragment in \
+    'target datalayout = "e-p:64:64:64"' \
+    '%result = trunc nuw i128 %half_wide to i64' \
+    '%delta = sub nuw i64 %maximum, %minimum' \
+    '%result = add nuw i64 %minimum, %half_delta'; do
+    rg --quiet --fixed-strings "${proof_fragment}" "${midpoint_proof}" || {
+        echo "optimizer proof consistency: midpoint proof is missing ${proof_fragment}" >&2
         exit 1
     }
 done

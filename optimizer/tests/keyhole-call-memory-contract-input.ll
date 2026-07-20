@@ -12,10 +12,22 @@ entry:
   ret i32 %result
 }
 
-define i32 @memcmp_call_argmem_read(ptr %left, ptr %right, i64 %length) {
+define i32 @memcmp_call_argmem_readwrite(ptr %left, ptr %right, i64 %length) {
 entry:
-  %result = call i32 @memcmp(ptr %left, ptr %right, i64 %length)
+  %result = call i32 @memcmp(ptr %left, ptr %right, i64 %length) memory(argmem: readwrite)
   ret i32 %result
 }
 
-declare i32 @memcmp(ptr captures(none), ptr captures(none), i64) memory(argmem: read)
+define i32 @memcmp_call_argmem_read_inaccessible_write(ptr %left, ptr %right, i64 %length) {
+entry:
+  %result = call i32 @memcmp(ptr %left, ptr %right, i64 %length) memory(argmem: read, inaccessiblemem: write)
+  ret i32 %result
+}
+
+define i32 @memcmp_call_argmem_read(ptr %left, ptr %right, i64 %length) {
+entry:
+  %result = call i32 @memcmp(ptr %left, ptr %right, i64 %length) memory(argmem: read)
+  ret i32 %result
+}
+
+declare i32 @memcmp(ptr captures(none), ptr captures(none), i64)

@@ -134,11 +134,14 @@ unproved_memcmp_output="${temporary_dir}/keyhole-unproved-memcmp.ll"
 argument_contract_output="${temporary_dir}/keyhole-argument-contract.ll"
 call_memory_contract_output="${temporary_dir}/keyhole-call-memory-contract.ll"
 declaration_memory_contract_output="${temporary_dir}/keyhole-declaration-memory-contract.ll"
+declaration_readwrite_memory_contract_output="${temporary_dir}/keyhole-declaration-readwrite-memory-contract.ll"
 declaration_argument_contract_output="${temporary_dir}/keyhole-declaration-argument-contract.ll"
 semantic_metadata_output="${temporary_dir}/keyhole-semantic-metadata.ll"
 local_memcmp_output="${temporary_dir}/keyhole-local-memcmp.ll"
 ordering_call_contract_output="${temporary_dir}/keyhole-ordering-call-contract.ll"
 fake_ordering_output="${temporary_dir}/keyhole-fake-ordering.ll"
+interleaved_convergent_output="${temporary_dir}/keyhole-interleaved-convergent.ll"
+midpoint_trunc_contract_output="${temporary_dir}/keyhole-midpoint-trunc-contract.ll"
 run_keyhole_pipeline aco-passes "${full_output}"
 run_keyhole_pipeline aco-midpoint-only "${midpoint_output}"
 run_keyhole_pipeline aco-slice-comparison-only "${slice_output}"
@@ -152,6 +155,7 @@ for contract_fixture in \
     call-memory-contract \
     declaration-argument-contract \
     declaration-memory-contract \
+    declaration-readwrite-memory-contract \
     semantic-metadata \
     local-memcmp \
     ordering-call-contract; do
@@ -165,6 +169,20 @@ for contract_fixture in \
         "${source_dir}/tests/${input_name}" \
         -o "${output_name}"
 done
+"${OPT}" \
+    -S \
+    -verify-each \
+    -load-pass-plugin="${PLUGIN}" \
+    -passes=aco-slice-comparison-only \
+    "${source_dir}/tests/keyhole-interleaved-convergent-input.ll" \
+    -o "${interleaved_convergent_output}"
+"${OPT}" \
+    -S \
+    -verify-each \
+    -load-pass-plugin="${PLUGIN}" \
+    -passes=aco-midpoint-only \
+    "${source_dir}/tests/keyhole-midpoint-trunc-contract-input.ll" \
+    -o "${midpoint_trunc_contract_output}"
 "${temporary_dir}/aco-optimizer-test-driver" \
     "${source_dir}/tests/keyhole-fake-ordering-input.ll" \
     aco-slice-comparison-only \
@@ -278,7 +296,9 @@ grep --quiet --fixed-strings 'aco.memcmp.check' <<< "${proved_function}"
 
 for unsupported_function_name in \
     memcmp_call_memory_none \
-    memcmp_call_inaccessible_memory; do
+    memcmp_call_inaccessible_memory \
+    memcmp_call_argmem_readwrite \
+    memcmp_call_argmem_read_inaccessible_write; do
     unsupported_function="$(sed -n \
         "/^define i32 @${unsupported_function_name}/,/^}/p" \
         "${call_memory_contract_output}")"
@@ -289,7 +309,7 @@ for unsupported_function_name in \
     fi
 done
 argmem_read_function="$(sed -n \
-    '/^define i32 @memcmp_call_argmem_read/,/^}/p' \
+    '/^define i32 @memcmp_call_argmem_read(/,/^}/p' \
     "${call_memory_contract_output}")"
 grep --quiet --fixed-strings 'aco.memcmp.check' \
     <<< "${argmem_read_function}"
@@ -297,6 +317,11 @@ grep --quiet --fixed-strings 'aco.memcmp.check' \
 if grep --quiet --fixed-strings 'aco.memcmp.' \
     "${declaration_memory_contract_output}"; then
     echo 'optimizer test: transformed memcmp with memory(none) declaration' >&2
+    exit 1
+fi
+if grep --quiet --fixed-strings 'aco.memcmp.' \
+    "${declaration_readwrite_memory_contract_output}"; then
+    echo 'optimizer test: transformed memcmp with read-write declaration effects' >&2
     exit 1
 fi
 if grep --quiet --fixed-strings 'aco.memcmp.' \
@@ -325,6 +350,28 @@ for ordering_contract_output in \
 done
 grep --quiet --fixed-strings '@llvm.scmp.i8.i64.fake' \
     "${fake_ordering_output}"
+
+grep --quiet --fixed-strings 'call void @side_effect()' \
+    "${interleaved_convergent_output}"
+grep --quiet --fixed-strings 'convergent' \
+    "${interleaved_convergent_output}"
+grep --quiet --fixed-strings 'aco.memcmp.check' \
+    "${interleaved_convergent_output}"
+if grep --quiet --fixed-strings 'aco.slice-cmp.' \
+    "${interleaved_convergent_output}"; then
+    echo 'optimizer test: relocated an interleaved convergent call' >&2
+    exit 1
+fi
+
+grep --quiet --fixed-strings 'trunc nsw i128 %half.wide to i64' \
+    "${midpoint_trunc_contract_output}"
+grep --quiet --fixed-strings 'trunc nuw nsw i128 %half.wide to i64' \
+    "${midpoint_trunc_contract_output}"
+if grep --quiet --fixed-strings 'aco.midpoint.' \
+    "${midpoint_trunc_contract_output}"; then
+    echo 'optimizer test: transformed a signed-wrap trunc midpoint' >&2
+    exit 1
+fi
 
 [[ "$(match_count 'aco.midpoint.result = add nuw' "${midpoint_output}")" == 1 ]]
 [[ "$(match_count '^aco.memcmp.check' "${midpoint_output}")" == 0 ]]

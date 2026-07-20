@@ -299,9 +299,20 @@ private:
     return false;
   }
 
-  static bool permitsProvenMemcmpReads(llvm::MemoryEffects Effects) {
-    return llvm::isRefSet(
-        Effects.getModRef(llvm::MemoryEffects::Location::ArgMem));
+  static bool permitsProvenMemcmpReads(
+      const llvm::AttributeList &Attributes) {
+    // An absent memory attribute does not override the recognized libc
+    // semantics. If a call or declaration does state a contract, however, it
+    // must fit wholly inside the read-only argument-memory behavior modeled by
+    // the proof; otherwise a bypassed call could drop writes or other effects.
+    if (!Attributes.hasFnAttr(llvm::Attribute::Memory))
+      return true;
+
+    llvm::MemoryEffects Effects = Attributes.getMemoryEffects();
+    return Effects.onlyReadsMemory() &&
+           Effects.onlyAccessesArgPointees() &&
+           llvm::isRefSet(
+               Effects.getModRef(llvm::MemoryEffects::Location::ArgMem));
   }
 
   static bool isProvenMemcmpCall(
@@ -320,9 +331,8 @@ private:
     if (!Callee || !Callee->isDeclaration() ||
         !Callee->hasExternalLinkage() ||
         hasUnsupportedMemcmpAttributeContract(Call, *Callee) ||
-        !permitsProvenMemcmpReads(
-            Call.getAttributes().getMemoryEffects()) ||
-        !permitsProvenMemcmpReads(Callee->getMemoryEffects()))
+        !permitsProvenMemcmpReads(Call.getAttributes()) ||
+        !permitsProvenMemcmpReads(Callee->getAttributes()))
       return false;
 
     const llvm::DataLayout &Layout = Call.getModule()->getDataLayout();
@@ -397,6 +407,29 @@ private:
         Ordering->getParent() != Block || !Memcmp.comesBefore(Ordering))
       return nullptr;
 
+    // Every unrelated instruction in this region is relocated to the shared
+    // continuation. Fail closed unless its operands already dominate the new
+    // branch and any call is free of control-placement contracts.
+    for (llvm::Instruction *Instruction = Memcmp.getNextNode();
+         Instruction != Ordering; Instruction = Instruction->getNextNode()) {
+      if (Instruction == Extended || Instruction == IsEqual ||
+          Instruction == LengthDifference || Instruction == Select ||
+          llvm::isa<llvm::DbgInfoIntrinsic>(Instruction))
+        continue;
+
+      auto *InterleavedCall = llvm::dyn_cast<llvm::CallInst>(Instruction);
+      if (InterleavedCall &&
+          hasUnsupportedCallControlContract(*InterleavedCall))
+        return nullptr;
+      for (llvm::Value *Operand : Instruction->operands()) {
+        auto *OperandInstruction = llvm::dyn_cast<llvm::Instruction>(Operand);
+        if (OperandInstruction && OperandInstruction->getParent() == Block &&
+            (OperandInstruction == &Memcmp ||
+             Memcmp.comesBefore(OperandInstruction)))
+          return nullptr;
+      }
+    }
+
     // Unrelated instructions in this range are sunk to the shared join by the
     // rewrite. Keep every matched input available before the branch so that
     // sinking cannot introduce a dependency cycle.
@@ -412,7 +445,11 @@ private:
 
   static std::optional<std::pair<llvm::Value *, llvm::Value *>>
   findOrderedMidpointOperands(const llvm::TruncInst &Trunc) {
-    if (!Trunc.getSrcTy()->isIntegerTy(128) ||
+    // The tracked source obligation is specifically `trunc nuw`. An nsw flag
+    // has a distinct poison condition that the native-width replacement does
+    // not preserve.
+    if (!Trunc.hasNoUnsignedWrap() || Trunc.hasNoSignedWrap() ||
+        !Trunc.getSrcTy()->isIntegerTy(128) ||
         !Trunc.getDestTy()->isIntegerTy(64))
       return std::nullopt;
 
