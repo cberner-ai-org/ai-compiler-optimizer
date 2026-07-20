@@ -73,6 +73,12 @@ entry:
   ret i32 %result
 }
 
+define i32 @memcmp_undef_pointers(i64 %length) {
+entry:
+  %result = call i32 @memcmp(ptr undef, ptr undef, i64 %length)
+  ret i32 %result
+}
+
 define i32 @memcmp_convergent(ptr %left, ptr %right, i64 %length) {
 entry:
   %result = call i32 @memcmp(ptr %left, ptr %right, i64 %length) convergent

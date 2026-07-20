@@ -2,7 +2,7 @@ target datalayout = "e-p:64:64:64"
 
 ; Zero-length case of the second slice-comparison refinement. The expanded
 ; memcmp produces zero directly; the specialized CFG enters its slow path.
-define i8 @src(ptr captures(none) %left, i64 %left_length, ptr captures(none) %right, i64 %right_length) {
+define i8 @src(ptr noundef captures(none) %left, i64 %left_length, ptr noundef captures(none) %right, i64 %right_length) {
 entry:
   %length = call i64 @llvm.umin.i64(i64 %left_length, i64 %right_length)
   %length_frozen = freeze i64 %length
@@ -16,7 +16,7 @@ entry:
   ret i8 %ordering
 }
 
-define i8 @tgt(ptr captures(none) %left, i64 %left_length, ptr captures(none) %right, i64 %right_length) {
+define i8 @tgt(ptr noundef captures(none) %left, i64 %left_length, ptr noundef captures(none) %right, i64 %right_length) {
 entry:
   %length = call i64 @llvm.umin.i64(i64 %left_length, i64 %right_length)
   %length_frozen = freeze i64 %length

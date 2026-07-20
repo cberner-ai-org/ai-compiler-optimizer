@@ -5,7 +5,7 @@ target datalayout = "e-p:64:64:64"
 ; equal-first-byte obligations, it is an exhaustive partition.
 ; The first refinement, which expands memcmp into this three-way CFG, is
 ; proved independently in memcmp-first-byte.srctgt.ll.
-define i8 @src(ptr captures(none) %left, i64 %left_length, ptr captures(none) %right, i64 %right_length) {
+define i8 @src(ptr noundef captures(none) %left, i64 %left_length, ptr noundef captures(none) %right, i64 %right_length) {
 entry:
   %length = call i64 @llvm.umin.i64(i64 %left_length, i64 %right_length)
   %length_frozen = freeze i64 %length
@@ -43,7 +43,7 @@ compare_join:
   ret i8 %ordering
 }
 
-define i8 @tgt(ptr captures(none) %left, i64 %left_length, ptr captures(none) %right, i64 %right_length) {
+define i8 @tgt(ptr noundef captures(none) %left, i64 %left_length, ptr noundef captures(none) %right, i64 %right_length) {
 entry:
   %length = call i64 @llvm.umin.i64(i64 %left_length, i64 %right_length)
   %length_frozen = freeze i64 %length

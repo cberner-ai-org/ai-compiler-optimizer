@@ -120,12 +120,15 @@ This is intentionally different from the rejected known-bits candidate in
 
 ## First-byte comparison rewrite
 
-For a general three-argument libc `memcmp`, the pass freezes the length, checks
-that it is nonzero, loads and freezes byte zero from each input, and calls libc
-only when the bytes are equal. If they differ, zero-extension and `sub nsw`
-produce an exact valid `memcmp` result. Zero length returns zero without
-loading memory. `isProvenMemcmpCall` owns the tracked ABI/type domain:
-little-endian 64-bit address-space-zero pointers and an `i64` length.
+For a general three-argument libc `memcmp`, the pass freezes both pointer
+operands and the length, checks that the length is nonzero, loads and freezes
+byte zero from each frozen pointer, and calls libc with the same frozen
+pointers only when the bytes are equal. The pointer freezes ensure an
+undef-producing source operand selects one address shared by the new load and
+retained call. If the bytes differ, zero-extension and `sub nsw` produce an
+exact valid `memcmp` result. Zero length returns zero without loading memory.
+`isProvenMemcmpCall` owns the tracked ABI/type domain: little-endian 64-bit
+address-space-zero pointers and an `i64` length.
 `hasUnsupportedCallControlContract` separately owns the placement contract for
 both calls relocated by specialization. It rejects non-C conventions, operand
 bundles, convergence, mandatory or prohibited tail placement, and
@@ -135,7 +138,9 @@ both the call and declaration must permit argument-memory reads. One refinement
 obligation covers calls without return or parameter contracts; a second covers
 Rust's exact call shape with `nonnull` on both pointer operands. Every other
 call-site return or parameter contract is rejected, and the declaration may
-carry only its capture parameter contract.
+carry only its capture parameter contract. The callee must be an external libc
+declaration rather than a module-local body. Non-debug call metadata is
+rejected because it can constrain a bypassed result or memory access.
 
 redb's hot slice-order shape is more specific:
 
@@ -152,11 +157,15 @@ redb's hot slice-order shape is more specific:
 On unequal first bytes, the specialized path computes an unsigned byte
 comparison and selects `-1` or `1`. Equal bytes and zero lengths retain the
 original `memcmp`, length tie-break, and signed comparison. Matcher checks
-require exactly the `sext`/zero equality/select/`llvm.scmp` use chain in one
-block. Any unrelated instructions interleaved between `memcmp` and `llvm.scmp`
-are sunk, in order, to the shared continuation rather than moved into the slow
-block. Thus calls, stores, and other work remain unconditional on both fast and
-slow paths instead of being bypassed when the first bytes differ.
+require exactly the `sext`/zero equality/select/`llvm.scmp.i8.i64` use chain in
+one block. Both the intrinsic ID and exact overload name are checked. The
+ordering call must have no return or parameter contracts; any materialized
+declaration contracts must equal LLVM's canonical intrinsic attributes, and
+non-debug metadata is rejected. Any unrelated instructions interleaved between
+`memcmp` and `llvm.scmp` are sunk, in order, to the shared continuation rather
+than moved into the slow block. Thus calls, stores, and other work remain
+unconditional on both fast and slow paths instead of being bypassed when the
+first bytes differ.
 
 The transformed slow call carries `!aco.expanded` metadata. A second pass run
 therefore performs no further expansion. The focused driver runs every
@@ -179,8 +188,12 @@ The keyhole obligations are:
 
 - `narrow-ordered-midpoint.srctgt.ll`: exact widened source and native target
   under the matcher's unsigned ordering precondition;
+- `single-use-pointer-freeze.srctgt.ll`: replacing either source pointer's one
+  use with a frozen value is a refinement; applying it to both operands creates
+  the correlated, `noundef` intermediate used by the remaining obligations;
 - `memcmp-first-byte.srctgt.ll`: complete zero/equal/unequal expansion,
-  including freezes, loads, memory behavior, and the libc model;
+  including correlated pointer and length freezes, loads, memory behavior, and
+  the libc model over that `noundef` pointer intermediate;
 - `memcmp-first-byte-call-attrs.srctgt.ll`: the same expansion with Rust's exact
   two-pointer `nonnull` call contract and `argmem: read` effects;
 - `slice-order-zero-after-memcmp-expansion.srctgt.ll`: zero frozen length;
@@ -194,7 +207,7 @@ the specialized fold after the independently proved generic expansion. The
 equivalent monolithic query exceeded the deadline and was rejected; it is not
 an accepted proof.
 
-The complete suite has nine accepted obligations: these six, two signed
+The complete suite has ten accepted obligations: these seven, two signed
 comparison obligations, and the identity gate smoke. The final `make prove`
 completed every obligation without timeout or diagnostic and still rejected
 the known-inequivalent and unfrozen negative controls.
@@ -214,10 +227,19 @@ the known-inequivalent and unfrozen negative controls.
   `llvm.scmp` calls. The public plugin runs it under `-verify-each`, leaves the
   three contracted ordering chains unspecialized, and specializes the ordinary
   hint only after clearing it.
+- API-level and verifier-backed ordering-contract fixtures reject fake
+  intrinsic names, call-site return and parameter attributes, and result
+  metadata. LLVM's parser canonicalizes textual intrinsic suffixes, so the
+  structural driver renames the verified fixture through LLVM's API before
+  checking that the exact-name guard remains fail closed.
 - The argument- and memory-contract fixtures run under `-verify-each`, reject
   partial `nonnull`, `noundef`, dereferenceability, alignment, and incompatible
   call/declaration memory effects, and retain the exact two-pointer `nonnull`
   and `argmem: read` cases.
+- Additional fixtures leave result-constraining `memcmp` metadata and a
+  module-defined `memcmp` body untouched. An explicit `ptr undef` positive case
+  checks that both generated loads and the retained call share each frozen
+  pointer value.
 - `optimizer/test.sh` tests all four pipelines through the real LLVM 22 plugin
   and a linked structural driver, runs each keyhole pipeline twice, checks exact
   transform counts, preserves the near miss, and checks idempotence.
@@ -234,9 +256,9 @@ the known-inequivalent and unfrozen negative controls.
   optimized modes. Both sets passed.
 - The benchmark image linked all five artifacts, checked all mode-specific
   traces, and rejected invalid selector invocations before being tagged.
-- Final hardened image `837761600f5e...` completed a one-pair runtime smoke
-  with exact `optimized` to `aco-passes` provenance, clean exits, and all 15
-  phase rows. Its 53.175 s versus 53.774 s process-only sample is a plumbing
+- Final review-hardened image `f5eaafb32f45...` completed a one-pair runtime
+  smoke with exact `optimized` to `aco-passes` provenance, clean exits, and all
+  15 phase rows. Its 53.882 s versus 52.505 s process-only sample is a plumbing
   check, not statistical performance evidence.
 - Statistical regressions validate exact pointwise sub-benchmark and
   12-endpoint Bonferroni intervals, reproduce the legacy seven-pair whole-run
@@ -324,11 +346,12 @@ Consequently the combined seven-pair result also measures the exact aggregate
 runtime artifact; collecting a duplicate optimized block would add no binary
 contrast.
 
-Final hardened clean-target image
-`837761600f5e92586804a2807f89ca22233c5f1e28e4971bac34f860bf68e8c7`
+Final review-hardened clean-target image
+`f5eaafb32f45870aa867ecca903ec6c1a66b59251a94d19da7ccbbb9fd819596`
 retained the baseline `40bf2eb5...` and midpoint `2c9c6fe6...` hashes. The final
-attribute- and memory-contract boundary produced slice-only `f520323c...`,
-combined `e56b52e8...`, and aggregate `f06fd069...` artifacts.
+call-contract, metadata, callee-identity, and pointer-correlation boundary
+produced slice-only `3c0d4f64...`, combined `b7d9caae...`, and aggregate
+`bed73dd4...` artifacts.
 The historical phase confidence intervals still audit the attribution study,
 but they are not exact measurements of the final slice-containing artifacts.
 No current-artifact performance claim is made from them. This limitation is
@@ -351,17 +374,17 @@ executable; the target was not a persistent Podman cache.
 
 | Mode | Build time | Change vs baseline | File size | Size change |
 | --- | ---: | ---: | ---: | ---: |
-| baseline | 282.600 s | — | 59,765,240 B | — |
-| midpoint | 292.770 s | +3.60% | 59,766,664 B | +1,424 B (+0.002%) |
-| slice comparison | 303.226 s | +7.30% | 59,774,984 B | +9,744 B (+0.016%) |
-| midpoint + slice | 302.453 s | +7.03% | 59,776,408 B | +11,168 B (+0.019%) |
-| full aggregate | 278.582 s | -1.42% | 59,775,144 B | +9,904 B (+0.017%) |
+| baseline | 277.677 s | — | 59,765,240 B | — |
+| midpoint | 277.951 s | +0.10% | 59,766,664 B | +1,424 B (+0.002%) |
+| slice comparison | 278.275 s | +0.22% | 59,768,680 B | +3,440 B (+0.006%) |
+| midpoint + slice | 277.237 s | -0.16% | 59,770,096 B | +4,856 B (+0.008%) |
+| full aggregate | 275.849 s | -0.66% | 59,768,840 B | +3,600 B (+0.006%) |
 
 Compile times are one sequential observation per mode, not paired samples. They
 include all locked benchmark dependencies and are affected by host scheduling,
 filesystem cache state, and build order. Candidate differences range from
--1.42% to +7.30%, so none of these one-shot values can be attributed to pass
-cost. The deterministic observation is only 0.002%-0.019% code-size growth;
+-0.66% to +0.22%, so none of these one-shot values can be attributed to pass
+cost. The deterministic observation is only 0.002%-0.008% code-size growth;
 randomized compile-time pairs would be needed for a timing interval.
 
 ## Limitations and follow-up
@@ -377,9 +400,9 @@ randomized compile-time pairs would be needed for a timing interval.
   whole-run confidence intervals. The timer correction alone does not affect
   phase confidence intervals because redb emitted those timings itself.
 - The final slice-containing binaries differ from the seven-pair experiment
-  after call-control hardening, so a new long run is also required before
-  applying phase confidence intervals to the current artifacts. Baseline and
-  midpoint hashes remain exact matches.
+  after call-contract and pointer-correlation hardening, so a new long run is
+  also required before applying phase confidence intervals to the current
+  artifacts. Baseline and midpoint hashes remain exact matches.
 - Compile-time values are descriptive single observations and have no
   confidence interval.
 - The next optimization candidate should not rely on this pass to satisfy the
