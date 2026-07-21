@@ -2,10 +2,15 @@
 
 ## Summary
 
-Safety status: accepted on 2026-07-19. Performance status: disabled by default
-on 2026-07-20. A seven-pair exact-artifact ablation on current master found
-negative marginal whole-process point estimates for both keyhole rewrite
-families and a robust nosync-write regression in the former full pipeline.
+Safety status: accepted on 2026-07-19 and extended with a dedicated downstream
+call-contract proof. Performance status: disabled by default after an
+exact-artifact ablation found negative marginal whole-process point estimates
+and a robust nosync-write regression in the former full pipeline. A later
+current-artifact seven-pair slice-only run
+measured a +7.613% ratio-of-means improvement for redb's 16-thread random-read
+phase. Its paired 95% interval remains wide at [-1.066%, +17.187%], so the point
+estimate clears the requested 5% threshold but does not establish a positive
+effect at 95% confidence.
 
 The LLVM 22 `KeyholePass` specializes two operations in redb's B-tree lookup
 path:
@@ -39,6 +44,46 @@ of [-3.257%, -0.826%]; that signal also survives a conservative Bonferroni
 correction over all 84 inspected phase hypotheses (adjusted `p` approximately
 0.024). Keeping these rewrites opt-in avoids spending default compile time and
 code size on transformations without positive workload evidence.
+
+That earlier attribution run had no positive lower confidence bound and no
+point estimate above 5%. The reach repair and current measurement below
+supersede its slice-only artifact while retaining the old result as history.
+
+## Downstream reach repair and current result
+
+Inspection of the final benchmark LLVM IR found that rustc adds symmetric
+`nonnull readonly` pointer contracts and `!alias.scope`/`!noalias` metadata to
+the hot monomorphized `memcmp` calls. It also materializes
+`noundef range(i8 -1, 2)` on their `llvm.scmp.i8.i64` calls. The original
+fail-closed matcher rejected those contracts, so a library-level trace could
+pass while the final `LeafAccessor::position<&[u8]>` and
+`BranchAccessor::child_for_key<&[u8]>` hot loops still called libc directly.
+
+The matcher now admits those exact rustc contracts. Alias metadata is copied
+to both speculative byte loads, the retained slow calls preserve their
+original contracts, and every broader attribute or metadata shape remains
+rejected. A dedicated Alive2 obligation proves the `nonnull readonly` memcmp
+expansion; the existing exhaustive slice-order obligations cover the same CFG,
+and the direct `-1`/`1` fast results satisfy the exact scmp range and noundef
+contract. The final image's transformation trace confirms one slice rewrite in
+each of the two benchmark-specialized hot functions.
+
+Image `333a3b22d725c93e842a791f5cd8189953c98d6a7f67e1e066514b5a8fab5d4f`
+ran seven alternating baseline/slice-only pairs on all eight effective CPUs of
+the AMD EPYC-Milan host. Every sample was retained. The slice artifact hash was
+`d5ce41e886ab05ac6514f50e3479797150a24e1b8df4211a17c3b25d55bad020`;
+the unchanged baseline hash was
+`40bf2eb5690962e64dc3e7b42313d69b857b6ffab154b136c81524e06c0f3756`.
+
+| Endpoint | Baseline / slice mean (ms) | Aggregate speedup | Paired mean [95% CI] |
+| --- | ---: | ---: | ---: |
+| Random read (16 threads), 5,151,000 items | 1391.286 / 1292.857 | +7.613% | +8.061% [-1.066%, +17.187%] |
+| Complete benchmark process | 53859 / 53133 | +1.366% | +1.388% [-0.033%, +2.809%] |
+
+The family-wise interval for the 16-thread endpoint is [-9.462%, +25.583%].
+This is a qualifying point estimate, not a statistically conclusive claim;
+the retained artifacts are in
+[`data/redb-slice-reach-2026-07-21/`](data/redb-slice-reach-2026-07-21/README.md).
 
 ## Motivation and workload location
 
@@ -141,12 +186,14 @@ bundles, convergence, mandatory or prohibited tail placement, and
 control-sensitive function attributes. An ordinary `tail` marker is only a
 discardable hint and is cleared from either relocated call. Memory effects on
 both the call and declaration must permit argument-memory reads. One refinement
-obligation covers calls without return or parameter contracts; a second covers
-Rust's exact call shape with `nonnull` on both pointer operands. Every other
+obligation covers calls without return or parameter contracts; two more cover
+Rust's exact call shapes with symmetric `nonnull` and `nonnull readonly`
+pointer contracts. Every other
 call-site return or parameter contract is rejected, and the declaration may
 carry only its capture parameter contract. The callee must be an external libc
-declaration rather than a module-local body. Non-debug call metadata is
-rejected because it can constrain a bypassed result or memory access.
+declaration rather than a module-local body. Alias-scope and noalias metadata
+are copied to both new loads and retained on the slow call. Other non-debug
+metadata is rejected because it can constrain a bypassed result or access.
 
 redb's hot slice-order shape is more specific:
 
@@ -165,7 +212,8 @@ comparison and selects `-1` or `1`. Equal bytes and zero lengths retain the
 original `memcmp`, length tie-break, and signed comparison. Matcher checks
 require exactly the `sext`/zero equality/select/`llvm.scmp.i8.i64` use chain in
 one block. Both the intrinsic ID and exact overload name are checked. The
-ordering call must have no return or parameter contracts; any materialized
+ordering call must have no parameter contracts and may carry only rustc's exact
+`noundef range(i8 -1, 2)` return contract; any materialized
 declaration contracts must equal LLVM's canonical intrinsic attributes, and
 non-debug metadata is rejected. Any unrelated instructions interleaved between
 `memcmp` and `llvm.scmp` are sunk, in order, to the shared continuation rather
@@ -202,6 +250,8 @@ The keyhole obligations are:
   the libc model over that `noundef` pointer intermediate;
 - `memcmp-first-byte-call-attrs.srctgt.ll`: the same expansion with Rust's exact
   two-pointer `nonnull` call contract and `argmem: read` effects;
+- `memcmp-first-byte-readonly-call-attrs.srctgt.ll`: the downstream rustc shape
+  with symmetric `nonnull readonly` pointer contracts;
 - `slice-order-zero-after-memcmp-expansion.srctgt.ll`: zero frozen length;
 - `slice-order-equal-after-memcmp-expansion.srctgt.ll`: nonzero length and
   equal frozen first bytes; and

@@ -1,0 +1,16 @@
+phase	occurrence	rounds	baseline_mean_ms	optimized_mean_ms	aggregate_speedup_percent	paired_mean_speedup_percent	paired_median_speedup_percent	paired_95ci_low_percent	paired_95ci_high_percent	paired_familywise_95ci_low_percent	paired_familywise_95ci_high_percent
+Bulk loaded 5000000 items	1	7	14734.429	14473.286	+1.804	+1.823	+1.686	+0.120	+3.527	-1.448	+5.094
+Wrote 1000 individual items	1	7	46.857	46.857	+0.000	+0.052	-2.083	-2.511	+2.616	-4.869	+4.974
+Wrote 100 batches of 1000 items	1	7	1594.429	1586.286	+0.513	+0.565	+1.008	-2.610	+3.739	-5.531	+6.660
+Wrote 50000 individual items	1	7	3649.000	3590.714	+1.623	+1.649	+0.195	-1.624	+4.922	-4.635	+7.933
+len()	1	7	0.000	0.000	+0.000	+0.000	+0.000	+0.000	+0.000	+0.000	+0.000
+Random read 1000000 items	1	7	1696.714	1671.286	+1.521	+1.566	+0.120	-1.647	+4.779	-4.603	+7.735
+Random read 1000000 items	2	7	1668.286	1649.286	+1.152	+1.213	+1.390	-2.190	+4.617	-5.322	+7.748
+Random range read 500000 x 10 elements	1	7	1700.857	1734.429	-1.936	-1.762	-0.404	-6.189	+2.666	-10.262	+6.739
+Random range read 500000 x 10 elements	2	7	1732.857	1690.143	+2.527	+2.603	+2.457	-0.746	+5.952	-3.826	+9.032
+Random read (4 threads) 5151000 items	1	7	2189.286	2186.143	+0.144	+0.569	+2.903	-6.642	+7.781	-13.277	+14.415
+Random read (8 threads) 5151000 items	1	7	1336.429	1315.143	+1.619	+3.111	+0.913	-8.635	+14.858	-19.440	+25.663
+Random read (16 threads) 5151000 items	1	7	1391.286	1292.857	+7.613	+8.061	+3.824	-1.066	+17.187	-9.462	+25.583
+Random read (32 threads) 5151000 items	1	7	1255.571	1247.571	+0.641	+1.107	+1.796	-6.993	+9.207	-14.445	+16.659
+Removed 2575500 items	1	7	10291.286	10141.143	+1.481	+1.481	+1.753	-1.445	+4.407	-4.136	+7.098
+Compacted	1	7	3895.286	3874.143	+0.546	+0.594	+1.093	-2.087	+3.275	-4.553	+5.741

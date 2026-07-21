@@ -261,6 +261,8 @@ complete manifest and starting an experiment.
 - `scripts/compare-redb-benchmarks.sh`: alternating paired redb benchmark runner
 - `scripts/select-redb-benchmark-mode.sh`: provenance-bound candidate selector
 - `scripts/summarize-redb-paired-totals.sh`: paired whole-run Student-t confidence interval
+- `scripts/summarize-redb-phases.sh`: paired pointwise and Bonferroni confidence intervals directly
+  from the canonical phase TSV retained by the benchmark runner
 - `scripts/summarize-redb-subbenchmarks.sh`: fail-closed round validation plus pointwise and
   Bonferroni family-wise Student-t statistics for any experiment with at least two paired rounds
 - `scripts/find-widened-midpoints.sh`: inventory widened unsigned midpoint candidates in LLVM IR

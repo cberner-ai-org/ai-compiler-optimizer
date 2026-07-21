@@ -199,8 +199,8 @@ done
 for transformed_output in "${all_output}" "${key_output}"; do
     [[ "$(match_count 'aco.midpoint.result = add nuw' "${transformed_output}")" == 1 ]]
     [[ "$(match_count '^aco.memcmp.check' "${transformed_output}")" == 2 ]]
-    [[ "$(match_count '^aco.slice-cmp.check' "${transformed_output}")" == 2 ]]
-    [[ "$(match_count '!aco.expanded' "${transformed_output}")" == 4 ]]
+    [[ "$(match_count '^aco.slice-cmp.check' "${transformed_output}")" == 3 ]]
+    [[ "$(match_count '!aco.expanded' "${transformed_output}")" == 5 ]]
 done
 
 memcmp_function="$(sed -n \
@@ -246,6 +246,15 @@ if grep --quiet --fixed-strings 'aco.scmp.nonless' <<< "${slice_function}"; then
     echo "optimizer test: all-passes pipeline lowered scmp before the slice matcher" >&2
     exit 1
 fi
+
+rust_hot_function="$(sed -n \
+    '/^define i8 @slice_compare_rust_hot_contract/,/^}/p' \
+    "${full_output}")"
+grep --quiet --fixed-strings 'aco.slice-cmp.check' <<< "${rust_hot_function}"
+[[ "$(grep --count --fixed-strings '!alias.scope' <<< "${rust_hot_function}")" -ge 3 ]]
+grep --quiet --fixed-strings \
+    'call noundef range(i8 -1, 2) i8 @llvm.scmp.i8.i64' \
+    <<< "${rust_hot_function}"
 
 side_effect_function="$(sed -n \
     '/^define i8 @slice_compare_with_interleaved_side_effect/,/^}/p' \
@@ -387,8 +396,8 @@ fi
 
 [[ "$(match_count 'aco.midpoint.result = add nuw' "${slice_output}")" == 0 ]]
 [[ "$(match_count '^aco.memcmp.check' "${slice_output}")" == 2 ]]
-[[ "$(match_count '^aco.slice-cmp.check' "${slice_output}")" == 2 ]]
-[[ "$(match_count '!aco.expanded' "${slice_output}")" == 4 ]]
+[[ "$(match_count '^aco.slice-cmp.check' "${slice_output}")" == 3 ]]
+[[ "$(match_count '!aco.expanded' "${slice_output}")" == 5 ]]
 
 for transformed_output in "${all_output}" "${midpoint_output}" "${key_output}"; do
     grep --quiet '^define i64 @unguarded_binary_search' "${transformed_output}"

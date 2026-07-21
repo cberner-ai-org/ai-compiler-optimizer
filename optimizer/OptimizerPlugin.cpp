@@ -1,6 +1,7 @@
 #include "llvm/Config/llvm-config.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/IR/ConstantRange.h"
 #include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/IR/Attributes.h"
 #include "llvm/IR/BasicBlock.h"
@@ -228,11 +229,35 @@ private:
     return !Metadata.empty();
   }
 
+  static bool hasUnsupportedMemcmpMetadataContract(
+      const llvm::CallInst &Call) {
+    // Alias metadata describes the memory access, so preserve it on every new
+    // load as well as on the retained call. Other attachments can constrain a
+    // bypassed result and remain outside the proof boundary.
+    llvm::SmallVector<std::pair<unsigned, llvm::MDNode *>, 4> Metadata;
+    Call.getAllMetadataOtherThanDebugLoc(Metadata);
+    for (const auto &[Kind, Node] : Metadata) {
+      (void)Node;
+      if (Kind != llvm::LLVMContext::MD_alias_scope &&
+          Kind != llvm::LLVMContext::MD_noalias)
+        return true;
+    }
+    return false;
+  }
+
+  static void copyMemcmpAliasMetadata(const llvm::CallInst &Call,
+                                      llvm::LoadInst &Load) {
+    for (unsigned Kind : {llvm::LLVMContext::MD_alias_scope,
+                          llvm::LLVMContext::MD_noalias})
+      if (llvm::MDNode *Node = Call.getMetadata(Kind))
+        Load.setMetadata(Kind, Node);
+  }
+
   static bool hasUnsupportedMemcmpAttributeContract(
       const llvm::CallInst &Call, const llvm::Function &Callee) {
-    // Keep the accepted attribute surface identical to the two tracked memcmp
-    // obligations. Rust's slice comparison emits nonnull on both pointer
-    // operands; the attributed obligation models exactly that shape. Every
+    // Keep the accepted attribute surface identical to the tracked memcmp
+    // obligations. Rust emits either nonnull or nonnull+readonly on both
+    // pointer operands; attributed obligations model both exact shapes. Every
     // other call-site return or parameter contract remains fail closed.
     if (Call.getAttributes().getRetAttrs().hasAttributes())
       return true;
@@ -252,7 +277,16 @@ private:
         RightAttributes.getNumAttributes() == 1 &&
         RightAttributes.hasAttribute(llvm::Attribute::NonNull) &&
         !LengthAttributes.hasAttributes();
-    if (!HasNoCallParameterAttributes && !HasProvenNonnullAttributes)
+    bool HasProvenReadonlyNonnullAttributes =
+        LeftAttributes.getNumAttributes() == 2 &&
+        LeftAttributes.hasAttribute(llvm::Attribute::NonNull) &&
+        LeftAttributes.hasAttribute(llvm::Attribute::ReadOnly) &&
+        RightAttributes.getNumAttributes() == 2 &&
+        RightAttributes.hasAttribute(llvm::Attribute::NonNull) &&
+        RightAttributes.hasAttribute(llvm::Attribute::ReadOnly) &&
+        !LengthAttributes.hasAttributes();
+    if (!HasNoCallParameterAttributes && !HasProvenNonnullAttributes &&
+        !HasProvenReadonlyNonnullAttributes)
       return true;
 
     if (Callee.getAttributes().getRetAttrs().hasAttributes())
@@ -271,12 +305,21 @@ private:
 
   static bool hasUnsupportedOrderingAttributeContract(
       const llvm::CallInst &Call, const llvm::Function &Callee) {
-    // The canonical scmp declaration has LLVM's intrinsic range attribute.
-    // If declaration contracts are materialized, require that exact set;
-    // reject every call-site return/parameter contract the fast path could
-    // bypass.
-    if (Call.getAttributes().getRetAttrs().hasAttributes())
-      return true;
+    // Rust copies the intrinsic's exact noundef and [-1, 2) range onto some
+    // call sites. The fast path returns only -1 or 1, so it satisfies both.
+    // Reject every other call-site contract the fast path could bypass.
+    llvm::AttributeSet CallReturnAttributes =
+        Call.getAttributes().getRetAttrs();
+    if (CallReturnAttributes.hasAttributes()) {
+      llvm::Attribute RangeAttribute =
+          CallReturnAttributes.getAttribute(llvm::Attribute::Range);
+      llvm::ConstantRange ScmpRange(llvm::APInt::getAllOnes(8),
+                                    llvm::APInt(8, 2));
+      if (CallReturnAttributes.getNumAttributes() != 2 ||
+          !CallReturnAttributes.hasAttribute(llvm::Attribute::NoUndef) ||
+          !RangeAttribute.isValid() || RangeAttribute.getRange() != ScmpRange)
+        return true;
+    }
     for (unsigned Index = 0; Index != Call.arg_size(); ++Index) {
       if (Call.getAttributes().getParamAttrs(Index).hasAttributes())
         return true;
@@ -323,7 +366,7 @@ private:
     // semantics and target domain are represented by that proof.
     if (Call.arg_size() != 3 ||
         Call.getType() != llvm::Type::getInt32Ty(Call.getContext()) ||
-        hasUnsupportedCallMetadataContract(Call) ||
+        hasUnsupportedMemcmpMetadataContract(Call) ||
         hasUnsupportedCallControlContract(Call))
       return false;
 
@@ -673,12 +716,14 @@ private:
 
     llvm::IRBuilder<> CheckBuilder(CheckBlock);
     CheckBuilder.SetCurrentDebugLocation(DebugLocation);
-    llvm::Value *LeftByte = CheckBuilder.CreateLoad(
-        llvm::Type::getInt8Ty(Context), FrozenLeftPointer,
-        "aco.slice-cmp.left");
-    llvm::Value *RightByte = CheckBuilder.CreateLoad(
-        llvm::Type::getInt8Ty(Context), FrozenRightPointer,
-        "aco.slice-cmp.right");
+    auto *LeftByte = CheckBuilder.CreateLoad(llvm::Type::getInt8Ty(Context),
+                                             FrozenLeftPointer,
+                                             "aco.slice-cmp.left");
+    auto *RightByte = CheckBuilder.CreateLoad(llvm::Type::getInt8Ty(Context),
+                                              FrozenRightPointer,
+                                              "aco.slice-cmp.right");
+    copyMemcmpAliasMetadata(Memcmp, *LeftByte);
+    copyMemcmpAliasMetadata(Memcmp, *RightByte);
     llvm::Value *FrozenLeft =
         CheckBuilder.CreateFreeze(LeftByte, "aco.slice-cmp.left.frozen");
     llvm::Value *FrozenRight =
@@ -753,12 +798,14 @@ private:
 
     llvm::IRBuilder<> CheckBuilder(CheckBlock);
     CheckBuilder.SetCurrentDebugLocation(DebugLocation);
-    llvm::Value *LeftByte = CheckBuilder.CreateLoad(
-        llvm::Type::getInt8Ty(Context), FrozenLeftPointer,
-        "aco.memcmp.left");
-    llvm::Value *RightByte = CheckBuilder.CreateLoad(
-        llvm::Type::getInt8Ty(Context), FrozenRightPointer,
-        "aco.memcmp.right");
+    auto *LeftByte = CheckBuilder.CreateLoad(llvm::Type::getInt8Ty(Context),
+                                             FrozenLeftPointer,
+                                             "aco.memcmp.left");
+    auto *RightByte = CheckBuilder.CreateLoad(llvm::Type::getInt8Ty(Context),
+                                              FrozenRightPointer,
+                                              "aco.memcmp.right");
+    copyMemcmpAliasMetadata(Call, *LeftByte);
+    copyMemcmpAliasMetadata(Call, *RightByte);
     llvm::Value *FrozenLeft =
         CheckBuilder.CreateFreeze(LeftByte, "aco.memcmp.left.frozen");
     llvm::Value *FrozenRight =

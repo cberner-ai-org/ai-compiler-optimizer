@@ -273,6 +273,7 @@ bash -n "${repo_root}/optimizer/test.sh"
 "${repo_root}/tests/redb-benchmark-mode-selector.sh"
 "${repo_root}/tests/redb-build-metrics.sh"
 "${repo_root}/tests/redb-paired-total-summary.sh"
+"${repo_root}/tests/redb-phase-summary.sh"
 "${repo_root}/tests/redb-subbenchmark-summary.sh"
 "${repo_root}/tests/redb-variant-traces.sh"
 

@@ -58,11 +58,14 @@ contracts such as `convergent`, `musttail`, `notail`, `noreturn`, `returns_twice
 relocated call. The memcmp matcher requires every explicit call-site or declaration memory contract
 to describe read-only argument memory. An absent memory attribute leaves the recognized libc
 semantics in force; explicit write or non-argument effects are rejected. It admits either no
-call-site return/parameter contracts or Rust's exact shape with `nonnull` on both pointer operands;
-a separate Alive2 obligation covers each shape.
+call-site return/parameter contracts, Rust's exact shape with `nonnull` on both pointer operands,
+or its downstream-monomorphized shape with symmetric `nonnull readonly` pointer contracts; a
+separate Alive2 obligation covers each shape. Alias-scope and noalias metadata on `memcmp` are
+copied to both speculative byte loads; every other non-debug attachment remains rejected.
 Every other call-site contract is rejected, and the declaration may retain only its capture
 contract. The proved memcmp domain is little-endian, 64-bit, address-space-zero, with an `i64`
-length.
+length. The slice fold also accepts the exact `noundef range(i8 -1, 2)` result contract rustc
+materializes on `llvm.scmp.i8.i64`; its direct `-1`/`1` results satisfy that contract.
 
 Because specialization moves the comparison chain behind the equal-byte branch, the rewrite sinks
 unrelated instructions between `memcmp` and `llvm.scmp` to the shared continuation. Eligibility

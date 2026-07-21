@@ -117,9 +117,12 @@ convention and reject operand bundles, convergence, mandatory or prohibited tail
 other control-sensitive function attributes. An ordinary `tail` marker is only a discardable hint;
 the rewrite clears it from either relocated call. Call and declaration memory effects must permit
 reads through argument pointers. The unannotated call-site shape uses the generic obligation; a
-dedicated obligation models Rust's exact shape with `nonnull` on both pointer operands. All other
-return and parameter contracts are rejected, and the declaration may retain only its capture
-contract. Structural consistency checks and verifier-backed adversarial fixtures bind these
+dedicated obligations model Rust's exact shapes with symmetric `nonnull` and `nonnull readonly`
+pointer operands. Alias-scope and noalias metadata are copied from `memcmp` to every speculative
+load; all other non-debug attachments, return contracts, and parameter contracts are rejected, and
+the declaration may retain only its capture contract. The slice fold additionally admits the exact
+`noundef range(i8 -1, 2)` contract rustc places on `llvm.scmp.i8.i64`, because both direct fast-path
+results are members of that range. Structural consistency checks and verifier-backed fixtures bind these
 fail-closed checks to the tracked obligations.
 
 ## Safety model
