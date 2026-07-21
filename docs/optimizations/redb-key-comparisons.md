@@ -366,9 +366,11 @@ produced slice-only `3c0d4f64...`, combined `b7d9caae...`, and aggregate
 `bed73dd4...` artifacts.
 The historical phase confidence intervals still audit the attribution study,
 but they are not exact measurements of the final slice-containing artifacts.
-No current-artifact performance claim is made from those historical samples.
-The exact-artifact 2026-07-20 ablation reported in the summary resolves this
-specific limitation; it does not repair the older samples.
+They are not used as current-artifact evidence. A new seven-pair run of the
+final aggregate artifact is reported below. This distinction is independent
+of the legacy whole-run timer contamination described above.
+The exact-artifact 2026-07-20 ablation reported in the summary also resolves
+this specific limitation; neither newer experiment repairs the older samples.
 
 The original five-pair experiment used baseline hash
 `40bf2eb5690962e64dc3e7b42313d69b857b6ffab154b136c81524e06c0f3756`
@@ -402,6 +404,28 @@ be attributed to pass cost. Their deterministic observation is
 the binary by 688 bytes. Independent randomized compile-time pairs would be
 needed for a timing interval.
 
+## Final-artifact aggregate rerun
+
+After the proof-boundary hardening, the benchmark image was rebuilt from the
+pinned inputs and the final aggregate artifact (`bed73dd4...`) was compared
+with the unchanged baseline (`40bf2eb5...`) for seven alternating pairs. The
+corrected process-only timer was used, and every sample was retained.
+
+| Rounds | Baseline mean | Optimized mean | Ratio-of-means speedup | Paired mean [95% CI] | Paired median |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 7 | 51.640 s | 50.952 s | +1.350% | +1.362% [+0.024%, +2.699%] | +2.387% |
+
+The current aggregate won four pairs, lost three, and improved the mean
+process time modestly. The interval barely excludes zero, but its upper bound
+is below 3%; this run does not support a 5% claim. Phase ratio-of-means point
+estimates also remained below 5%: the largest were +3.02% for the first
+single-thread random-read occurrence and +2.84% for removals. A transient
+multithreaded slowdown appeared in optimized round 5 and was retained.
+
+The raw process samples, exact artifact and host identities, and reproducible
+summary are retained in
+[`data/redb-key-comparisons-2026-07-21-current/`](data/redb-key-comparisons-2026-07-21-current/README.md).
+
 ## Limitations and follow-up
 
 - The pass recognizes exact rustc LLVM 22 shapes and fixed i64/i128 types; it is
@@ -414,6 +438,11 @@ needed for a timing interval.
 - The 2026-07-20 ablation supplies corrected process-only confidence intervals
   for exact hardened artifacts. Its complete raw data and provenance are in
   `results/pass-ablation-master-2026-07-20/`.
+- The final aggregate now has a corrected process-only seven-pair interval,
+  but current slice-only and combined attribution still need dedicated runs.
+- Current phase samples were inspected for point estimates but are not retained
+  as a confidence-interval artifact; a future controlled run should preserve
+  and summarize those rows directly.
 - Compile-time values are descriptive single observations and have no
   confidence interval.
 - The next optimization candidate should not rely on this pass to satisfy the

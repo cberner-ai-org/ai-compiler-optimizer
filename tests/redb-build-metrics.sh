@@ -11,6 +11,8 @@ printf '%s\n' \
     $'baseline\t1000\t2000' \
     $'midpoint\t1100\t1990' \
     $'slice-comparison\t900\t2020' \
+    $'key-comparisons\t1050\t2010' \
+    $'optimized\t950\t2030' \
     > "${fixture}"
 
 "${repo_root}/scripts/summarize-redb-build-metrics.sh" "${fixture}" \
@@ -24,11 +26,28 @@ grep --quiet --fixed-strings --line-regexp \
 
 printf '%s\n' \
     $'variant\tbuild_elapsed_ms\tbinary_size_bytes' \
+    $'baseline\t1000\t2000' \
     $'midpoint\t1100\t1990' \
+    $'slice-comparison\t900\t2020' \
+    $'key-comparisons\t1050\t2010' \
     > "${fixture}"
 if "${repo_root}/scripts/summarize-redb-build-metrics.sh" "${fixture}" \
     > /dev/null 2>&1; then
-    echo "redb build metrics summary accepted a missing baseline" >&2
+    echo "redb build metrics summary accepted a missing optimized row" >&2
+    exit 1
+fi
+
+printf '%s\n' \
+    $'variant\tbuild_elapsed_ms\tbinary_size_bytes' \
+    $'baseline\t1000\t2000' \
+    $'midpoint\t1100\t1990' \
+    $'slice-comparison\t900\t2020' \
+    $'key-comparison\t1050\t2010' \
+    $'optimized\t950\t2030' \
+    > "${fixture}"
+if "${repo_root}/scripts/summarize-redb-build-metrics.sh" "${fixture}" \
+    > /dev/null 2>&1; then
+    echo "redb build metrics summary accepted an unknown variant" >&2
     exit 1
 fi
 
