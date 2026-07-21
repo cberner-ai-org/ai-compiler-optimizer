@@ -51,4 +51,38 @@ done
 expected=$'random_range_reads\t8\t16\t100.000\t91.500\t+9.290\t+9.358\t+9.293\t+6.909\t+11.807\t+5.035\t+13.682'
 grep --quiet --fixed-strings --line-regexp "${expected}" "${summary}"
 
+expect_rejection() {
+    local description="$1"
+
+    if "${summarizer}" "${fixture}" > /dev/null 2>&1; then
+        echo "redb sub-benchmark summary accepted ${description}" >&2
+        exit 1
+    fi
+}
+
+: > "${fixture}"
+printf '[round 1/2] baseline (custom passes disabled)\n' >> "${fixture}"
+emit_measurements baseline 100 >> "${fixture}"
+printf '[round 1/3] optimized (custom passes enabled)\n' >> "${fixture}"
+emit_measurements optimized 90 >> "${fixture}"
+expect_rejection "conflicting declared round counts"
+
+: > "${fixture}"
+for variant in baseline optimized; do
+    printf '[round 1/2] %s\n' "${variant}" >> "${fixture}"
+    emit_measurements "${variant}" 100 >> "${fixture}"
+done
+printf '[round 1/2] baseline (duplicate)\n' >> "${fixture}"
+emit_measurements baseline 100 >> "${fixture}"
+expect_rejection "a duplicate round header"
+
+: > "${fixture}"
+for round in 1 3; do
+    for variant in baseline optimized; do
+        printf '[round %d/3] %s\n' "${round}" "${variant}" >> "${fixture}"
+        emit_measurements "${variant}" 100 >> "${fixture}"
+    done
+done
+expect_rejection "a missing round"
+
 echo "redb sub-benchmark summary regression passed"
