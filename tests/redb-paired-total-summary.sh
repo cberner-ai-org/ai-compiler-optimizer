@@ -27,8 +27,19 @@ printf '%s\n' \
     > "${fixture}"
 if "${repo_root}/scripts/summarize-redb-paired-totals.sh" "${fixture}" \
     > /dev/null 2>&1; then
-    echo "redb paired total summary accepted fewer than seven rounds" >&2
+    echo "redb paired total summary accepted fewer than two rounds" >&2
     exit 1
 fi
+
+printf '%s\n' $'round\tvariant\telapsed_ns' > "${fixture}"
+for round in {1..8}; do
+    printf '%s\tbaseline\t100000000000\n' "${round}" >> "${fixture}"
+    printf '%s\toptimized\t%s\n' \
+        "${round}" "$(((87 + round) * 1000000000))" >> "${fixture}"
+done
+"${repo_root}/scripts/summarize-redb-paired-totals.sh" "${fixture}" > "${summary}"
+grep --quiet --fixed-strings --line-regexp \
+    $'8\t100.000\t91.500\t+9.290\t+9.358\t+9.293\t+6.909\t+11.807' \
+    "${summary}"
 
 echo "redb paired total summary regression passed"

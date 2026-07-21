@@ -40,4 +40,15 @@ expected=$'random_range_reads\t7\t14\t100.000\t91.000\t+9.890\t+9.943\t+9.890\t+
 grep --quiet --fixed-strings --line-regexp "${expected}" "${summary}"
 [[ "$(wc -l < "${summary}")" == 13 ]]
 
+: > "${fixture}"
+for round in {1..8}; do
+    printf '[round %d/8] baseline (custom passes disabled)\n' "${round}" >> "${fixture}"
+    emit_measurements baseline 100 >> "${fixture}"
+    printf '[round %d/8] optimized (custom passes enabled)\n' "${round}" >> "${fixture}"
+    emit_measurements optimized "$((87 + round))" >> "${fixture}"
+done
+"${summarizer}" "${fixture}" > "${summary}"
+expected=$'random_range_reads\t8\t16\t100.000\t91.500\t+9.290\t+9.358\t+9.293\t+6.909\t+11.807\t+5.035\t+13.682'
+grep --quiet --fixed-strings --line-regexp "${expected}" "${summary}"
+
 echo "redb sub-benchmark summary regression passed"
