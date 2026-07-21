@@ -7,7 +7,7 @@ log_file="${1:?usage: summarize-redb-subbenchmarks RAW_BENCHMARK_LOG}"
     exit 1
 }
 
-gawk '
+gawk -f "${BASH_SOURCE[0]%/*}/student-t.awk" --source '
     function fail(message) {
         print "redb sub-benchmark summary: " message > "/dev/stderr"
         exit 1
@@ -113,20 +113,18 @@ gawk '
                 squared_deviation += (paired[sample_round] - paired_mean) ^ 2
             paired_standard_deviation = sqrt(squared_deviation / (rounds - 1))
 
-            # All retained experiments currently use seven rounds. Use the
-            # exact two-sided 95% Student t critical value for six degrees of
-            # freedom; fail rather than silently reporting a wrong interval.
-            if (rounds != 7)
-                fail("95% interval currently requires exactly seven rounds")
-            confidence_radius = 2.446912 * paired_standard_deviation / sqrt(rounds)
+            critical = aco_student_t_critical(0.975, rounds - 1)
+            confidence_radius = critical * paired_standard_deviation / sqrt(rounds)
             # Twelve sub-benchmarks are inspected together. This Bonferroni
-            # interval uses t_(1 - 0.05 / (2 * 12), 6) so simultaneous
+            # interval uses t_(1 - 0.05 / (2 * 12), rounds - 1) so simultaneous
             # coverage across the reported family is at least 95%.
-            familywise_confidence_radius = \
-                4.485768 * paired_standard_deviation / sqrt(rounds)
+            familywise_critical = \
+                aco_student_t_critical(1 - 0.05 / (2 * 12), rounds - 1)
+            familywise_confidence_radius = familywise_critical * paired_standard_deviation / sqrt(rounds)
 
             asort(paired)
-            paired_median = paired[(rounds + 1) / 2]
+            paired_median = rounds % 2 ? paired[(rounds + 1) / 2] : \
+                (paired[rounds / 2] + paired[rounds / 2 + 1]) / 2
             printf "%s\t%d\t%d\t%.3f\t%.3f\t%+.3f\t%+.3f\t%+.3f\t%+.3f\t%+.3f\t%+.3f\t%+.3f\n", \
                 benchmark, \
                 rounds, \

@@ -260,8 +260,9 @@ complete manifest and starting an experiment.
 - `scripts/rustc-with-aco-passes.sh`: rustc wrapper that loads the custom pass pipeline
 - `scripts/compare-redb-benchmarks.sh`: alternating paired redb benchmark runner
 - `scripts/select-redb-benchmark-mode.sh`: provenance-bound candidate selector
-- `scripts/summarize-redb-paired-totals.sh`: paired whole-run confidence interval
-- `scripts/summarize-redb-subbenchmarks.sh`: pointwise and family-wise paired statistics
+- `scripts/summarize-redb-paired-totals.sh`: paired whole-run Student-t confidence interval
+- `scripts/summarize-redb-subbenchmarks.sh`: pointwise and Bonferroni family-wise Student-t
+  statistics for any experiment with at least two paired rounds
 - `scripts/find-widened-midpoints.sh`: inventory widened unsigned midpoint candidates in LLVM IR
 - `scripts/verify-alive2-proofs.sh`: fail-closed proof-result adapter
 - `scripts/verify-alive2-negative-proofs.sh`: exact negative-control result adapter

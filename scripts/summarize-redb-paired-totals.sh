@@ -7,7 +7,7 @@ results_file="${1:?usage: summarize-redb-paired-totals TOTAL_RESULTS.tsv}"
     exit 1
 }
 
-gawk -F '\t' '
+gawk -F '\t' -f "${BASH_SOURCE[0]%/*}/student-t.awk" --source '
     function fail(message) {
         print "redb paired total summary: " message > "/dev/stderr"
         exit 1
@@ -33,11 +33,8 @@ gawk -F '\t' '
     }
 
     END {
-        # Keep the interval reproducible and explicit. Seven pairs use the
-        # exact two-sided 95% Student t critical value for six degrees of
-        # freedom, matching the sub-benchmark analysis.
-        if (rounds != 7)
-            fail("95% interval currently requires exactly seven rounds")
+        if (rounds < 2)
+            fail("at least two paired rounds are required")
 
         for (round = 1; round <= rounds; round++) {
             baseline_key = round SUBSEP "baseline"
@@ -55,7 +52,8 @@ gawk -F '\t' '
         for (round = 1; round <= rounds; round++)
             squared_deviation += (paired[round] - paired_mean) ^ 2
         paired_standard_deviation = sqrt(squared_deviation / (rounds - 1))
-        confidence_radius = 2.446912 * paired_standard_deviation / sqrt(rounds)
+        confidence_radius = \
+            aco_student_t_critical(0.975, rounds - 1) * paired_standard_deviation / sqrt(rounds)
         asort(paired)
 
         print "rounds\tbaseline_mean_s\toptimized_mean_s\taggregate_speedup_percent\tpaired_mean_speedup_percent\tpaired_median_speedup_percent\tpaired_95ci_low_percent\tpaired_95ci_high_percent"
@@ -65,7 +63,8 @@ gawk -F '\t' '
             optimized_total / rounds / 1000000000, \
             (baseline_total / optimized_total - 1) * 100, \
             paired_mean, \
-            paired[(rounds + 1) / 2], \
+            (rounds % 2 ? paired[(rounds + 1) / 2] : \
+                (paired[rounds / 2] + paired[rounds / 2 + 1]) / 2), \
             paired_mean - confidence_radius, \
             paired_mean + confidence_radius
     }
