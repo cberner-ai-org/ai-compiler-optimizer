@@ -20,6 +20,10 @@ awk -F '\t' '
     }
 
     {
+        if ($1 != "baseline" && $1 != "midpoint" &&
+            $1 != "slice-comparison" && $1 != "key-comparisons" &&
+            $1 != "optimized")
+            fail("unknown variant: " $1)
         if (NF != 3 || seen[$1]++ || $2 !~ /^[0-9]+$/ || $2 == 0 ||
             $3 !~ /^[0-9]+$/ || $3 == 0)
             fail("invalid metrics row: " $0)
@@ -29,8 +33,14 @@ awk -F '\t' '
     }
 
     END {
-        if (!("baseline" in elapsed))
-            fail("missing baseline row")
+        expected[1] = "baseline"
+        expected[2] = "midpoint"
+        expected[3] = "slice-comparison"
+        expected[4] = "key-comparisons"
+        expected[5] = "optimized"
+        for (variant = 1; variant <= 5; variant++)
+            if (!(expected[variant] in elapsed))
+                fail("missing " expected[variant] " row")
         print "variant\tbuild_elapsed_ms\tcompile_time_change_percent\tbinary_size_bytes\tcode_size_change_bytes\tcode_size_change_percent"
         for (row = 1; row <= count; row++) {
             variant = order[row]
