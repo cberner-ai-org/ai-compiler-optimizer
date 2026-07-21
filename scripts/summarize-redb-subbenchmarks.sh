@@ -26,8 +26,16 @@ gawk -f "${BASH_SOURCE[0]%/*}/student-t.awk" --source '
         if (!match($0, /^\[round ([0-9]+)\/([0-9]+)\] (baseline|optimized)/, header))
             fail("could not parse round header: " $0)
         round = header[1] + 0
-        rounds = header[2] + 0
+        declared_rounds = header[2] + 0
         variant = header[3]
+        if (round < 1 || round > declared_rounds)
+            fail("round header is outside its declared range: " $0)
+        if (rounds != 0 && declared_rounds != rounds)
+            fail("conflicting declared round counts: " rounds " and " declared_rounds)
+        rounds = declared_rounds
+        header_key = round SUBSEP variant
+        if (seen_headers[header_key]++)
+            fail("duplicate header for round " round " variant " variant)
         next
     }
 
@@ -67,6 +75,13 @@ gawk -f "${BASH_SOURCE[0]%/*}/student-t.awk" --source '
     END {
         if (rounds < 2)
             fail("at least two paired rounds are required")
+
+        for (sample_round = 1; sample_round <= rounds; sample_round++) {
+            if (!((sample_round SUBSEP "baseline") in seen_headers))
+                fail("missing baseline header for round " sample_round)
+            if (!((sample_round SUBSEP "optimized") in seen_headers))
+                fail("missing optimized header for round " sample_round)
+        }
 
         order[1] = "bulk_load"
         order[2] = "individual_writes"
