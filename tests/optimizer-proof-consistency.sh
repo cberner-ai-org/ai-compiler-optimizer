@@ -8,6 +8,7 @@ undef_proof="${repo_root}/optimizer/proofs/scmp-i64-switch-undef-correlation.opt
 unfrozen_regression="${repo_root}/tests/alive2/00-scmp-i64-switch-unfrozen.opt"
 memcmp_proof="${repo_root}/optimizer/proofs/memcmp-first-byte.srctgt.ll"
 memcmp_contract_proof="${repo_root}/optimizer/proofs/memcmp-first-byte-call-attrs.srctgt.ll"
+memcmp_readonly_contract_proof="${repo_root}/optimizer/proofs/memcmp-first-byte-readonly-call-attrs.srctgt.ll"
 pointer_freeze_proof="${repo_root}/optimizer/proofs/single-use-pointer-freeze.srctgt.ll"
 slice_equal_proof="${repo_root}/optimizer/proofs/slice-order-equal-after-memcmp-expansion.srctgt.ll"
 slice_unequal_proof="${repo_root}/optimizer/proofs/slice-order-unequal-after-memcmp-expansion.srctgt.ll"
@@ -42,13 +43,16 @@ for implementation_fragment in \
     'isProvenMemcmpCall' \
     'hasUnsupportedCallControlContract(Call)' \
     'hasUnsupportedCallControlContract(*Ordering)' \
-    'hasUnsupportedCallMetadataContract(Call)' \
+    'hasUnsupportedMemcmpMetadataContract(Call)' \
     'hasUnsupportedCallMetadataContract(*Ordering)' \
     'hasUnsupportedMemcmpAttributeContract(Call, *Callee)' \
     'hasUnsupportedOrderingAttributeContract(*Ordering,' \
     'OrderingFunction->getIntrinsicID() != llvm::Intrinsic::scmp' \
     'OrderingFunction->getName() != "llvm.scmp.i8.i64"' \
     'llvm::Intrinsic::getAttributes(' \
+    'RangeAttribute.getRange()' \
+    'llvm::ConstantRange ScmpRange' \
+    'llvm::Attribute::NoUndef' \
     '!Callee->isDeclaration()' \
     '!Callee->hasExternalLinkage()' \
     'Call.getAttributes().getParamAttrs(0)' \
@@ -56,8 +60,13 @@ for implementation_fragment in \
     'Call.getAttributes().getParamAttrs(2)' \
     'HasNoCallParameterAttributes' \
     'HasProvenNonnullAttributes' \
+    'HasProvenReadonlyNonnullAttributes' \
     'Callee.getAttributes().getParamAttrs(Index)' \
     'llvm::Attribute::NonNull' \
+    'llvm::Attribute::ReadOnly' \
+    'llvm::LLVMContext::MD_alias_scope' \
+    'llvm::LLVMContext::MD_noalias' \
+    'copyMemcmpAliasMetadata' \
     'llvm::Attribute::Captures' \
     'Attributes.hasFnAttr(llvm::Attribute::Memory)' \
     'Attributes.getMemoryEffects()' \
@@ -89,6 +98,16 @@ for implementation_fragment in \
     'RightPointer->getAddressSpace() == 0'; do
     rg --quiet --fixed-strings "${implementation_fragment}" "${implementation}" || {
         echo "optimizer proof consistency: memcmp matcher is missing ${implementation_fragment}" >&2
+        exit 1
+    }
+done
+
+for proof_fragment in \
+    '%result = call i32 @memcmp(ptr nonnull readonly %left, ptr nonnull readonly %right, i64 %length)' \
+    '%slow_result = call i32 @memcmp(ptr nonnull readonly %left_pointer, ptr nonnull readonly %right_pointer, i64 %length_frozen)' \
+    'declare i32 @memcmp(ptr captures(none), ptr captures(none), i64) memory(argmem: read)'; do
+    rg --quiet --fixed-strings "${proof_fragment}" "${memcmp_readonly_contract_proof}" || {
+        echo "optimizer proof consistency: readonly memcmp proof is missing ${proof_fragment}" >&2
         exit 1
     }
 done
