@@ -1,0 +1,91 @@
+round	variant	phase	occurrence	elapsed_ms
+1	baseline	Bulk loaded 5000000 items	1	15118
+1	baseline	Wrote 1000 individual items	1	45
+1	baseline	Wrote 100 batches of 1000 items	1	1544
+1	baseline	Wrote 50000 individual items	1	3473
+1	baseline	len()	1	0
+1	baseline	Random read 1000000 items	1	1736
+1	baseline	Random read 1000000 items	2	1660
+1	baseline	Random range read 500000 x 10 elements	1	1579
+1	baseline	Random range read 500000 x 10 elements	2	1567
+1	baseline	Random read (4 threads) 5151000 items	1	2367
+1	baseline	Random read (8 threads) 5151000 items	1	2476
+1	baseline	Random read (16 threads) 5151000 items	1	2504
+1	baseline	Random read (32 threads) 5151000 items	1	2560
+1	baseline	Removed 2575500 items	1	10249
+1	baseline	Compacted	1	3820
+1	optimized	Bulk loaded 5000000 items	1	15083
+1	optimized	Wrote 1000 individual items	1	46
+1	optimized	Wrote 100 batches of 1000 items	1	1646
+1	optimized	Wrote 50000 individual items	1	3573
+1	optimized	len()	1	0
+1	optimized	Random read 1000000 items	1	1681
+1	optimized	Random read 1000000 items	2	1697
+1	optimized	Random range read 500000 x 10 elements	1	1687
+1	optimized	Random range read 500000 x 10 elements	2	1724
+1	optimized	Random read (4 threads) 5151000 items	1	2398
+1	optimized	Random read (8 threads) 5151000 items	1	2397
+1	optimized	Random read (16 threads) 5151000 items	1	2316
+1	optimized	Random read (32 threads) 5151000 items	1	2323
+1	optimized	Removed 2575500 items	1	10506
+1	optimized	Compacted	1	4020
+2	optimized	Bulk loaded 5000000 items	1	14920
+2	optimized	Wrote 1000 individual items	1	47
+2	optimized	Wrote 100 batches of 1000 items	1	1634
+2	optimized	Wrote 50000 individual items	1	3657
+2	optimized	len()	1	0
+2	optimized	Random read 1000000 items	1	1837
+2	optimized	Random read 1000000 items	2	1868
+2	optimized	Random range read 500000 x 10 elements	1	1833
+2	optimized	Random range read 500000 x 10 elements	2	1858
+2	optimized	Random read (4 threads) 5151000 items	1	2549
+2	optimized	Random read (8 threads) 5151000 items	1	2654
+2	optimized	Random read (16 threads) 5151000 items	1	2428
+2	optimized	Random read (32 threads) 5151000 items	1	2541
+2	optimized	Removed 2575500 items	1	11330
+2	optimized	Compacted	1	4099
+2	baseline	Bulk loaded 5000000 items	1	16052
+2	baseline	Wrote 1000 individual items	1	49
+2	baseline	Wrote 100 batches of 1000 items	1	1696
+2	baseline	Wrote 50000 individual items	1	3761
+2	baseline	len()	1	0
+2	baseline	Random read 1000000 items	1	1824
+2	baseline	Random read 1000000 items	2	1739
+2	baseline	Random range read 500000 x 10 elements	1	1766
+2	baseline	Random range read 500000 x 10 elements	2	1797
+2	baseline	Random read (4 threads) 5151000 items	1	2519
+2	baseline	Random read (8 threads) 5151000 items	1	2510
+2	baseline	Random read (16 threads) 5151000 items	1	2538
+2	baseline	Random read (32 threads) 5151000 items	1	2619
+2	baseline	Removed 2575500 items	1	11378
+2	baseline	Compacted	1	4149
+3	baseline	Bulk loaded 5000000 items	1	15957
+3	baseline	Wrote 1000 individual items	1	48
+3	baseline	Wrote 100 batches of 1000 items	1	1730
+3	baseline	Wrote 50000 individual items	1	3760
+3	baseline	len()	1	0
+3	baseline	Random read 1000000 items	1	1921
+3	baseline	Random read 1000000 items	2	1896
+3	baseline	Random range read 500000 x 10 elements	1	1821
+3	baseline	Random range read 500000 x 10 elements	2	1867
+3	baseline	Random read (4 threads) 5151000 items	1	2622
+3	baseline	Random read (8 threads) 5151000 items	1	2610
+3	baseline	Random read (16 threads) 5151000 items	1	2610
+3	baseline	Random read (32 threads) 5151000 items	1	2641
+3	baseline	Removed 2575500 items	1	11250
+3	baseline	Compacted	1	4166
+3	optimized	Bulk loaded 5000000 items	1	15740
+3	optimized	Wrote 1000 individual items	1	49
+3	optimized	Wrote 100 batches of 1000 items	1	1691
+3	optimized	Wrote 50000 individual items	1	3781
+3	optimized	len()	1	0
+3	optimized	Random read 1000000 items	1	1868
+3	optimized	Random read 1000000 items	2	1798
+3	optimized	Random range read 500000 x 10 elements	1	1803
+3	optimized	Random range read 500000 x 10 elements	2	1799
+3	optimized	Random read (4 threads) 5151000 items	1	2449
+3	optimized	Random read (8 threads) 5151000 items	1	2548
+3	optimized	Random read (16 threads) 5151000 items	1	2468
+3	optimized	Random read (32 threads) 5151000 items	1	2459
+3	optimized	Removed 2575500 items	1	10422
+3	optimized	Compacted	1	4009

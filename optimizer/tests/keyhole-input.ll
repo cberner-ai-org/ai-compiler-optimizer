@@ -129,7 +129,7 @@ define i8 @slice_compare_rust_hot_contract(ptr %left, i64 %left.length, ptr %rig
 entry:
   %length.difference = sub i64 %left.length, %right.length
   %length = call i64 @llvm.umin.i64(i64 %left.length, i64 %right.length)
-  %comparison = call i32 @memcmp(ptr nonnull readonly %left, ptr nonnull readonly %right, i64 %length), !alias.scope !0
+  %comparison = call i32 @memcmp(ptr nonnull readonly %left, ptr nonnull readonly %right, i64 %length), !alias.scope !0, !noalias !3
   %comparison.extended = sext i32 %comparison to i64
   %equal = icmp eq i32 %comparison, 0
   %difference = select i1 %equal, i64 %length.difference, i64 %comparison.extended
@@ -158,3 +158,5 @@ declare i8 @llvm.scmp.i8.i64(i64, i64)
 !0 = !{!1}
 !1 = distinct !{!1, !2, !"rust-hot-scope"}
 !2 = distinct !{!2, !"rust-hot-domain"}
+!3 = !{!4}
+!4 = distinct !{!4, !2, !"rust-hot-noalias-scope"}

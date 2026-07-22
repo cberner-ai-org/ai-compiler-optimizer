@@ -108,6 +108,16 @@ ACO_OPTIMIZER_PIPELINE_NAME=aco-midpoint-only \
 grep --quiet --fixed-strings \
     $'benchmark_candidate_variant\tmidpoint' \
     "${fixture_root}/midpoint-provenance.tsv"
+
+ACO_BENCHMARK_CANDIDATE_VARIANT=three-way-compare \
+ACO_OPTIMIZER_PIPELINE_NAME=aco-three-way-compare-only \
+    write_provenance "${fixture_root}/three-way-provenance.tsv"
+grep --quiet --fixed-strings \
+    $'benchmark_candidate_variant\tthree-way-compare' \
+    "${fixture_root}/three-way-provenance.tsv"
+grep --quiet --fixed-strings \
+    $'optimizer_pipeline\taco-three-way-compare-only' \
+    "${fixture_root}/three-way-provenance.tsv"
 grep --quiet --fixed-strings \
     $'optimizer_pipeline\taco-midpoint-only' \
     "${fixture_root}/midpoint-provenance.tsv"

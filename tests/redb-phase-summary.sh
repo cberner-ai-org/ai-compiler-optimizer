@@ -24,6 +24,17 @@ grep --quiet --fixed-strings --line-regexp \
 grep --quiet --fixed-strings --line-regexp \
     $'len()\t1\t7\t0.000\t0.000\t+0.000\t+0.000\t+0.000\t+0.000\t+0.000\t+0.000\t+0.000' "${summary}"
 
+for retained_directory in \
+    docs/optimizations/data/redb-slice-reach-2026-07-21 \
+    results/three-way-compare-2026-07-21-seven-pair-physical-cores; do
+    "${summarizer}" \
+        "${repo_root}/${retained_directory}/phases.tsv" \
+        > "${summary}"
+    cmp \
+        "${repo_root}/${retained_directory}/phase-summary.tsv" \
+        "${summary}"
+done
+
 expect_rejection() {
     local description="$1"
     if "${summarizer}" "${fixture}" > /dev/null 2>&1; then
@@ -44,4 +55,14 @@ printf '%s\n' $'round\tvariant\tphase\toccurrence\telapsed_ms' \
     $'1\tbaseline\tread\t1\t1' $'1\toptimized\tread\t1\t0' \
     $'2\tbaseline\tread\t1\t1' $'2\toptimized\tread\t1\t0' > "${fixture}"
 expect_rejection "a one-sided zero-duration pair"
+printf '%s\n' $'round\tvariant\tphase\toccurrence\telapsed_ms' \
+    $'1\tbaseline\tread\t1\t0' $'1\toptimized\tread\t1\t0' \
+    $'2\tbaseline\tread\t1\t2' $'2\toptimized\tread\t1\t1' > "${fixture}"
+if "${summarizer}" "${fixture}" > /dev/null 2> "${summary}"; then
+    echo "redb phase summary accepted mixed zero-duration and measurable pairs" >&2
+    exit 1
+fi
+grep --quiet --fixed-strings \
+    'mixed zero-duration and measurable pairs for phase read occurrence 1' \
+    "${summary}"
 echo "redb phase summary regression passed"

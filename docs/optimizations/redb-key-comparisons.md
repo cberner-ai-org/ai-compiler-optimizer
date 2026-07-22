@@ -6,7 +6,7 @@ Safety status: accepted on 2026-07-19 and extended with a dedicated downstream
 call-contract proof. Performance status: disabled by default after an
 exact-artifact ablation found negative marginal whole-process point estimates
 and a robust nosync-write regression in the former full pipeline. A later
-current-artifact seven-pair slice-only run
+post-reach seven-pair slice-only run
 measured a +7.613% ratio-of-means improvement for redb's 16-thread random-read
 phase. Its paired 95% interval remains wide at [-1.066%, +17.187%], so the point
 estimate clears the requested 5% threshold but does not establish a positive
@@ -65,8 +65,11 @@ original contracts, and every broader attribute or metadata shape remains
 rejected. A dedicated Alive2 obligation proves the `nonnull readonly` memcmp
 expansion; the existing exhaustive slice-order obligations cover the same CFG,
 and the direct `-1`/`1` fast results satisfy the exact scmp range and noundef
-contract. The final image's transformation trace confirms one slice rewrite in
-each of the two benchmark-specialized hot functions.
+contract. Both the slice-only and combined artifact builds now fail unless
+their transformation trace contains a positive slice-rewrite count for the
+byte-slice `LeafAccessor::position` and `BranchAccessor::child_for_key`
+benchmark specializations. This prevents unrelated library rewrites from
+satisfying the downstream-reach gate.
 
 Image `333a3b22d725c93e842a791f5cd8189953c98d6a7f67e1e066514b5a8fab5d4f`
 ran seven alternating baseline/slice-only pairs on all eight effective CPUs of
@@ -103,15 +106,21 @@ silently contain the other key optimization.
 
 ## Selectable pipelines
 
-The plugin exposes five strict pipeline names:
+The plugin exposes six strict pipeline names:
 
 | Pipeline | Midpoint | Slice/`memcmp` | signed `scmp` switch |
 | --- | :---: | :---: | :---: |
+| `aco-passes` | no | no | yes |
+| `aco-three-way-compare-only` | no | no | yes |
 | `aco-midpoint-only` | yes | no | no |
 | `aco-slice-comparison-only` | no | yes | no |
 | `aco-key-comparisons` | yes | yes | no |
-| `aco-passes` | no | no | yes |
 | `aco-all-passes` | yes | yes | yes |
+
+`aco-three-way-compare-only` is an explicit attribution alias of the
+performance-gated `aco-passes` default; both schedule only signed-switch
+lowering. The separate name gives provenance and runtime selection a stable
+way to distinguish an attribution experiment without changing code generation.
 
 In the explicit `aco-all-passes` pipeline, the keyhole pass runs before
 signed-switch lowering. This ordering is required:
@@ -300,8 +309,9 @@ the known-inequivalent and unfrozen negative controls.
 - Additional fixtures leave result-constraining `memcmp` metadata and a
   module-defined `memcmp` body untouched. An explicit `ptr undef` positive case
   checks that both generated loads and the retained call share each frozen
-  pointer value.
-- `optimizer/test.sh` tests all five pipelines through the real LLVM 22 plugin
+  pointer value. The hot-contract fixture independently requires both
+  `!alias.scope` and `!noalias` on each speculative load and the retained call.
+- `optimizer/test.sh` tests all six pipelines through the real LLVM 22 plugin
   and a linked structural driver, runs each keyhole pipeline twice, checks exact
   transform counts, preserves the near miss, and checks idempotence.
 - Wrapper tests check the strict pipeline allowlist, per-mode environment, and
@@ -316,9 +326,9 @@ the known-inequivalent and unfrozen negative controls.
   lowering.
 - The redb image ran all 37 library tests independently in baseline and
   optimized modes. Both sets passed.
-- The benchmark image linked all five artifacts, checked all mode-specific
+- The benchmark image linked all six artifacts, checked all mode-specific
   traces, and rejected invalid selector invocations before being tagged.
-- Final review-hardened image `f5eaafb32f45...` completed a one-pair runtime
+- Pre-reach review-hardened image `f5eaafb32f45...` completed a one-pair runtime
   smoke with exact `optimized` to `aco-passes` provenance, clean exits, and all
   15 phase rows. Its 53.882 s versus 52.505 s process-only sample is a plumbing
   check, not statistical performance evidence.
@@ -408,17 +418,19 @@ Consequently the combined seven-pair result also measures the exact aggregate
 runtime artifact; collecting a duplicate optimized block would add no binary
 contrast.
 
-Final review-hardened clean-target image
+Pre-reach review-hardened clean-target image
 `f5eaafb32f45870aa867ecca903ec6c1a66b59251a94d19da7ccbbb9fd819596`
-retained the baseline `40bf2eb5...` and midpoint `2c9c6fe6...` hashes. The final
-call-contract, metadata, callee-identity, and pointer-correlation boundary
+retained the baseline `40bf2eb5...` and midpoint `2c9c6fe6...` hashes. The
+pre-reach call-contract, metadata, callee-identity, and pointer-correlation boundary
 produced slice-only `3c0d4f64...`, combined `b7d9caae...`, and aggregate
 `bed73dd4...` artifacts.
 The historical phase confidence intervals still audit the attribution study,
 but they are not exact measurements of the final slice-containing artifacts.
-They are not used as current-artifact evidence. A new seven-pair run of the
-final aggregate artifact is reported below. This distinction is independent
-of the legacy whole-run timer contamination described above.
+They are not used as post-reach evidence. A seven-pair run of the exact
+then-current aggregate artifact is reported below for history, but it predates
+the later repair that reaches final redb slice-comparison monomorphizations.
+This distinction is independent of the legacy whole-run timer contamination
+described above.
 The exact-artifact 2026-07-20 ablation reported in the summary also resolves
 this specific limitation; neither newer experiment repairs the older samples.
 
@@ -430,9 +442,9 @@ same exact files used here. Its favorable 6.09% and 9.63% per-iteration ratios
 had no confidence interval and are superseded as acceptance evidence by this
 longer attribution study.
 
-## Current code size and compile-time impact
+## Pre-reach code size and compile-time impact
 
-The benchmark image records full executable file size and wall time for each
+The pre-reach benchmark image records full executable file size and wall time for each
 separate `cargo bench --no-run` build. Every mode started with an absent
 isolated target directory and removed it after installing the Cargo-reported
 executable; the target was not a persistent Podman cache.
@@ -454,18 +466,21 @@ be attributed to pass cost. Their deterministic observation is
 the binary by 688 bytes. Independent randomized compile-time pairs would be
 needed for a timing interval.
 
-## Final-artifact aggregate rerun
+## Pre-reach aggregate rerun (historical)
 
 After the proof-boundary hardening, the benchmark image was rebuilt from the
-pinned inputs and the final aggregate artifact (`bed73dd4...`) was compared
-with the unchanged baseline (`40bf2eb5...`) for seven alternating pairs. The
-corrected process-only timer was used, and every sample was retained.
+pinned inputs and the then-current aggregate artifact (`bed73dd4...`) was
+compared with the unchanged baseline (`40bf2eb5...`) for seven alternating
+pairs. The corrected process-only timer was used, and every sample was
+retained. This artifact used plugin `8e816d27...` and predates the downstream
+reach repair, so it does not measure the later post-repair aggregate
+composition.
 
 | Rounds | Baseline mean | Optimized mean | Ratio-of-means speedup | Paired mean [95% CI] | Paired median |
 | ---: | ---: | ---: | ---: | ---: | ---: |
 | 7 | 51.640 s | 50.952 s | +1.350% | +1.362% [+0.024%, +2.699%] | +2.387% |
 
-The current aggregate won four pairs, lost three, and improved the mean
+The pre-reach aggregate won four pairs, lost three, and improved the mean
 process time modestly. The interval barely excludes zero, but its upper bound
 is below 3%; this run does not support a 5% claim. Phase ratio-of-means point
 estimates also remained below 5%: the largest were +3.02% for the first
@@ -488,9 +503,10 @@ summary are retained in
 - The 2026-07-20 ablation supplies corrected process-only confidence intervals
   for exact hardened artifacts. Its complete raw data and provenance are in
   `results/pass-ablation-master-2026-07-20/`.
-- The final aggregate now has a corrected process-only seven-pair interval,
-  but current slice-only and combined attribution still need dedicated runs.
-- Current phase samples were inspected for point estimates but are not retained
+- The post-reach slice-only pipeline has the dedicated seven-pair run reported
+  above. The post-reach combined key-comparison and explicit all-passes
+  compositions still need dedicated runs.
+- Pre-reach phase samples were inspected for point estimates but are not retained
   as a confidence-interval artifact; a future controlled run should preserve
   and summarize those rows directly.
 - Compile-time values are descriptive single observations and have no

@@ -173,9 +173,24 @@ measured_target_cleanup_count="$(
         'rm -rf -- "${ACO_CARGO_TARGET_ROOT}"' \
         "${repo_root}/containers/Containerfile"
 )"
-[[ "${measured_target_guard_count}" == 5 \
-    && "${measured_target_cleanup_count}" == 5 ]] \
+[[ "${measured_target_guard_count}" == 6 \
+    && "${measured_target_cleanup_count}" == 6 ]] \
     || fail "every measured redb build must start empty and remove its target"
+rg --quiet --fixed-strings \
+    'summarize-redb-build-metrics --schema current-v2' \
+    "${repo_root}/containers/Containerfile" \
+    || fail "current redb image does not require the current build-metrics schema"
+hot_slice_reach_gate_count="$(
+    rg --count \
+        '^[[:space:]]+verify-redb-hot-slice-reach /tmp/aco-redb-(slice-comparison|key-comparisons)-trace;' \
+        "${repo_root}/containers/Containerfile"
+)"
+[[ "${hot_slice_reach_gate_count}" == 2 ]] \
+    || fail "slice-enabled redb artifacts must gate both hot byte-slice functions"
+rg --quiet --fixed-strings \
+    'COPY scripts/verify-redb-hot-slice-reach.sh /usr/local/bin/verify-redb-hot-slice-reach' \
+    "${repo_root}/containers/Containerfile" \
+    || fail "benchmark image does not install the hot slice reach verifier"
 rg --quiet --fixed-strings \
     'build-environment:%s\n' \
     "${repo_root}/containers/Containerfile" \
@@ -272,6 +287,7 @@ bash -n "${repo_root}/optimizer/test.sh"
 "${repo_root}/tests/redb-benchmark-comparison.sh"
 "${repo_root}/tests/redb-benchmark-mode-selector.sh"
 "${repo_root}/tests/redb-build-metrics.sh"
+"${repo_root}/tests/redb-hot-slice-reach.sh"
 "${repo_root}/tests/redb-paired-total-summary.sh"
 "${repo_root}/tests/redb-phase-summary.sh"
 "${repo_root}/tests/redb-subbenchmark-summary.sh"

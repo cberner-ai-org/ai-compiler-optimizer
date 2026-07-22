@@ -154,14 +154,20 @@ boundary.
 
 The current workflow pins Rust and redb as submodules and builds an editable stage-1 compiler plus
 the optimizer plugin in a Podman image. `make benchmark-image` runs redb's library tests and
-compiles `redb_benchmark` in five modes: baseline invokes the stage-1 compiler directly; midpoint,
-slice-comparison, key-comparisons, and optimized invoke that same compiler with independently
-selected custom pipelines. The optimized mode is the performance-gated default and enables only
-signed three-way comparison switch lowering. The other three candidate modes preserve proved but
-default-disabled keyhole rewrites for attribution. Cargo's event stream selects each resulting
+compiles `redb_benchmark` in six modes: baseline invokes the stage-1 compiler directly;
+three-way-compare, midpoint, slice-comparison, key-comparisons, and optimized invoke that same
+compiler with independently selected custom pipelines. Optimized is the performance-gated default
+and enables only signed three-way comparison switch lowering; three-way-compare is its explicit
+attribution alias. The other three candidate modes preserve proved but default-disabled keyhole
+rewrites. Cargo's event stream selects each resulting
 executable for the final runtime image. A provenance-bound runtime selector compares any one
 candidate with the shared baseline through the five-million-item load, read, removal, and compaction
 workload.
+
+Build-metrics files are immutable evidence and retain the complete schema of their producing image.
+The reusable summarizer recognizes both the legacy five-mode `legacy-v1` schema and the six-mode
+`current-v2` schema. The current image builder explicitly requires `current-v2`; adding a mode does
+not retroactively invalidate retained historical inputs.
 
 The container base is selected by an immutable registry digest, and every apt installation resolves
 against a dated Debian snapshot. Both identities are centralized in `config/versions.env`, enforced
@@ -216,22 +222,29 @@ attribute a sample without retaining the discarded build stages. The
 default single round is only an integration check. Before optimization results are claimed,
 experiments must use repeated runs on a controlled idle host and report the sample distribution and
 uncertainty, not only the harness's mean wall-time ratio.
+Phase confidence intervals require a defined speedup in every paired round. An endpoint that is zero
+for both variants in every round is retained as a structural no-op; mixing such 0/0 observations with
+measurable rounds is rejected rather than assigning the undefined observations a synthetic speedup.
 
 ## Optimizer integration scaffold
 
 rustc's existing `-Zllvm-plugins` hook loads `libaco_optimizer.so`, and `-Cpasses=aco-passes`
-appends the default signed-switch-only ACO pipeline to the per-module LLVM pipeline. The plugin also
-exposes `aco-midpoint-only`, `aco-slice-comparison-only`, and `aco-key-comparisons` for attribution,
-plus `aco-all-passes` for explicit experiments with the former full composition. `addAcoPipeline`
-is the explicit ordering and policy point for custom passes. In `aco-all-passes`, the keyhole pass
-runs before signed-switch lowering so the slice matcher can consume its exact `llvm.scmp` use chain
-before that intrinsic is lowered. Each pass transforms only exact accepted patterns and invalidates
-analyses only when it changes IR. The toolchain smoke enables trace output and requires a
-successful plugin load while rejecting any default keyhole trace. A
+appends the default signed-switch-only ACO pipeline to the per-module LLVM pipeline. The plugin
+also exposes `aco-three-way-compare-only`, `aco-midpoint-only`, `aco-slice-comparison-only`, and
+`aco-key-comparisons` for attribution, plus `aco-all-passes` for explicit experiments with the former
+full composition. `addAcoPipeline` is the explicit ordering and policy point for custom passes. In
+`aco-all-passes`, the keyhole pass runs before signed-switch lowering so the slice matcher can consume
+its exact `llvm.scmp` use chain before that intrinsic is lowered. Each pass transforms only exact
+accepted patterns and invalidates analyses only when it changes IR. The toolchain smoke enables trace
+output and requires a successful plugin load while rejecting any default keyhole trace. A
 separate benchmark-image gate compiles a redb byte-slice probe from separate fresh baseline and
 optimized Cargo targets. The baseline must emit no ACO trace and the optimized build must emit a
 signed-switch transforming trace with no keyhole trace. This proves both halves of the A/B boundary
 and the default-disable policy while normal benchmark builds remain untraced.
+The slice-only and combined key-comparison artifacts have a separate downstream-reach gate: each
+clean build must report a positive slice rewrite in both byte-slice redb benchmark search functions,
+`LeafAccessor::position` and `BranchAccessor::child_for_key`. A global transformation count cannot
+satisfy this gate because dependency rewrites do not establish benchmark reach.
 
 The comparison pass freezes each `llvm.scmp` operand once before the staged less-than/equality
 branches. This preserves the single-use correlation of undef-capable SSA values when the replacement

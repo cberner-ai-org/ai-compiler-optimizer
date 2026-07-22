@@ -1,0 +1,2 @@
+rounds	baseline_mean_s	optimized_mean_s	aggregate_speedup_percent	paired_mean_speedup_percent	paired_median_speedup_percent	paired_95ci_low_percent	paired_95ci_high_percent
+7	56.669	56.872	-0.356	-0.353	-0.593	-1.219	+0.512

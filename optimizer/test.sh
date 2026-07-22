@@ -10,6 +10,7 @@ source_dir="$(cd -- "${source_parent}" && pwd)"
 temporary_dir="$(mktemp -d)"
 trap 'rm -rf -- "${temporary_dir}"' EXIT
 output="${temporary_dir}/optimizer-output.ll"
+three_way_output="${temporary_dir}/optimizer-three-way-output.ll"
 
 "${OPT}" \
     -S \
@@ -18,6 +19,16 @@ output="${temporary_dir}/optimizer-output.ll"
     -passes=aco-passes \
     "${source_dir}/tests/optimizer.ll" \
     -o "${output}"
+
+"${OPT}" \
+    -S \
+    -verify-each \
+    -load-pass-plugin="${PLUGIN}" \
+    -passes=aco-three-way-compare-only \
+    "${source_dir}/tests/optimizer.ll" \
+    -o "${three_way_output}"
+
+cmp "${output}" "${three_way_output}"
 
 signed_i64="$({
     sed -n '/^define i32 @signed_i64/,/^}/p' "${output}"
@@ -249,9 +260,34 @@ fi
 
 rust_hot_function="$(sed -n \
     '/^define i8 @slice_compare_rust_hot_contract/,/^}/p' \
-    "${full_output}")"
+    "${all_output}")"
 grep --quiet --fixed-strings 'aco.slice-cmp.check' <<< "${rust_hot_function}"
-[[ "$(grep --count --fixed-strings '!alias.scope' <<< "${rust_hot_function}")" -ge 3 ]]
+rust_hot_left_load="$(grep --fixed-strings \
+    '%aco.slice-cmp.left = load i8' <<< "${rust_hot_function}")"
+rust_hot_right_load="$(grep --fixed-strings \
+    '%aco.slice-cmp.right = load i8' <<< "${rust_hot_function}")"
+rust_hot_memcmp="$(grep --fixed-strings \
+    'call i32 @memcmp' <<< "${rust_hot_function}")"
+rust_hot_alias_scope_metadata="$(sed -n \
+    's/.*!alias.scope \(![0-9][0-9]*\).*/\1/p' \
+    <<< "${rust_hot_memcmp}")"
+rust_hot_noalias_metadata="$(sed -n \
+    's/.*!noalias \(![0-9][0-9]*\).*/\1/p' \
+    <<< "${rust_hot_memcmp}")"
+[[ -n "${rust_hot_alias_scope_metadata}" ]]
+[[ -n "${rust_hot_noalias_metadata}" ]]
+[[ "${rust_hot_alias_scope_metadata}" != "${rust_hot_noalias_metadata}" ]]
+for rust_hot_memory_access in \
+    "${rust_hot_left_load}" \
+    "${rust_hot_right_load}" \
+    "${rust_hot_memcmp}"; do
+    grep --quiet --fixed-strings \
+        "!alias.scope ${rust_hot_alias_scope_metadata}" \
+        <<< "${rust_hot_memory_access}"
+    grep --quiet --fixed-strings \
+        "!noalias ${rust_hot_noalias_metadata}" \
+        <<< "${rust_hot_memory_access}"
+done
 grep --quiet --fixed-strings \
     'call noundef range(i8 -1, 2) i8 @llvm.scmp.i8.i64' \
     <<< "${rust_hot_function}"

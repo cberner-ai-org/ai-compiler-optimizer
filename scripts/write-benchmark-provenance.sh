@@ -38,6 +38,9 @@ case "${candidate_variant}" in
     optimized)
         expected_optimizer_pipeline=aco-passes
         ;;
+    three-way-compare)
+        expected_optimizer_pipeline=aco-three-way-compare-only
+        ;;
     midpoint)
         expected_optimizer_pipeline=aco-midpoint-only
         ;;

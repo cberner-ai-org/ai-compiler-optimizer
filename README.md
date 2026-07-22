@@ -126,12 +126,13 @@ sets `RUSTC` to the unmodified stage-1 compiler invocation;
 `with-compiler-variant optimized` selects `rustc-with-aco-passes`, which adds
 `-Zllvm-plugins=/opt/rust-custom/lib/libaco_optimizer.so` and
 `-Cpasses=aco-passes`. The performance-gated `aco-passes` pipeline contains only
-signed three-way comparison switch lowering. Three additional variants retain
-the proved key-comparison rewrites for attribution without
+signed three-way comparison switch lowering. Four additional variants provide an explicit alias or
+retain the proved key-comparison rewrites for attribution without
 code-generation-visible identity flags:
 
 | Variant | LLVM pipeline | Enabled rewrites |
 | --- | --- | --- |
+| `three-way-compare` | `aco-three-way-compare-only` | signed switches, explicit default alias |
 | `midpoint` | `aco-midpoint-only` | ordered midpoint only |
 | `slice-comparison` | `aco-slice-comparison-only` | slice ordering and general `memcmp` fast paths |
 | `key-comparisons` | `aco-key-comparisons` | midpoint and slice comparison |
@@ -179,7 +180,7 @@ uses the executable path emitted by its current Cargo invocation rather than
 directory timestamps.
 
 The final runtime image excludes the custom compiler and both build trees. The
-benchmark-builder first assembles all five executables, the A/B runner, and the
+benchmark-builder first assembles all six executables, the A/B runner, and the
 clock helper, then generates per-candidate provenance over that complete runtime
 bundle; the final stage copies those exact files together. One round runs
 baseline then optimized; later rounds reverse the order to reduce ordering bias. Output from
@@ -201,9 +202,8 @@ Podman options through the runner when controlling the environment:
 ./scripts/run-redb-benchmark.sh --cpuset-cpus=2-5 --env ACO_BENCHMARK_RUNS=3
 ```
 
-The default candidate is `optimized`. Set `ACO_BENCHMARK_MODE` to `midpoint`,
-`slice-comparison`, or `key-comparisons` to attribute the isolated and combined
-key-comparison effects:
+The default candidate is `optimized`. Set `ACO_BENCHMARK_MODE` to `three-way-compare`, `midpoint`,
+`slice-comparison`, or `key-comparisons` to attribute isolated and combined comparison effects:
 
 ```console
 ./scripts/run-redb-benchmark.sh \
@@ -262,7 +262,8 @@ complete manifest and starting an experiment.
 - `scripts/select-redb-benchmark-mode.sh`: provenance-bound candidate selector
 - `scripts/summarize-redb-paired-totals.sh`: paired whole-run Student-t confidence interval
 - `scripts/summarize-redb-phases.sh`: paired pointwise and Bonferroni confidence intervals directly
-  from the canonical phase TSV retained by the benchmark runner
+  from the canonical phase TSV retained by the benchmark runner; entirely zero-duration endpoints
+  remain structural no-ops, while mixed zero-duration and measurable pairs fail closed
 - `scripts/summarize-redb-subbenchmarks.sh`: fail-closed round validation plus pointwise and
   Bonferroni family-wise Student-t statistics for any experiment with at least two paired rounds
 - `scripts/find-widened-midpoints.sh`: inventory widened unsigned midpoint candidates in LLVM IR

@@ -8,10 +8,13 @@ mkdir -p "${fixture_root}/bin" "${fixture_root}/share"
 
 selector="${repo_root}/scripts/select-redb-benchmark-mode.sh"
 selector_sha256="$(sha256sum "${selector}" | awk '{print $1}')"
-for mode in optimized midpoint slice-comparison key-comparisons; do
+for mode in optimized three-way-compare midpoint slice-comparison key-comparisons; do
     case "${mode}" in
         optimized)
             pipeline=aco-passes
+            ;;
+        three-way-compare)
+            pipeline=aco-three-way-compare-only
             ;;
         midpoint)
             pipeline=aco-midpoint-only
