@@ -843,7 +843,8 @@ private:
 bool addAcoPipeline(llvm::ModulePassManager &ModulePasses,
                     llvm::StringRef Name) {
   bool EnableThreeWayCompare =
-      Name == "aco-passes" || Name == "aco-all-passes";
+      Name == "aco-passes" || Name == "aco-three-way-compare-only" ||
+      Name == "aco-all-passes";
   bool EnableSliceComparisons =
       Name == "aco-slice-comparison-only" || Name == "aco-key-comparisons" ||
       Name == "aco-all-passes";

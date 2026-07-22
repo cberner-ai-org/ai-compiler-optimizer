@@ -63,6 +63,13 @@ mapfile -t all_passes_actual < <(
 )
 [[ "${all_passes_actual[1]}" == "-Cpasses=aco-all-passes" ]]
 
+mapfile -t three_way_actual < <(
+    ACO_TOOLCHAIN_ROOT="${fixture_root}" \
+    ACO_OPTIMIZER_PIPELINE=aco-three-way-compare-only \
+        "${repo_root}/scripts/rustc-with-aco-passes.sh" --version
+)
+[[ "${three_way_actual[1]}" == "-Cpasses=aco-three-way-compare-only" ]]
+
 if ACO_TOOLCHAIN_ROOT="${fixture_root}" \
     ACO_OPTIMIZER_PIPELINE=unreviewed-pipeline \
         "${repo_root}/scripts/rustc-with-aco-passes.sh" --version \
@@ -87,6 +94,7 @@ read_variant_environment() {
 
 mapfile -t baseline_environment < <(read_variant_environment baseline)
 mapfile -t optimized_environment < <(read_variant_environment optimized)
+mapfile -t three_way_environment < <(read_variant_environment three-way-compare)
 mapfile -t midpoint_environment < <(read_variant_environment midpoint)
 mapfile -t slice_environment < <(read_variant_environment slice-comparison)
 mapfile -t key_environment < <(read_variant_environment key-comparisons)
@@ -96,6 +104,8 @@ mapfile -t key_environment < <(read_variant_environment key-comparisons)
 [[ "${optimized_environment[0]}" == "${repo_root}/scripts/rustc-with-aco-passes.sh" ]]
 [[ "${optimized_environment[1]}" == "${fixture_root}/target-root/aco-optimized-"* ]]
 [[ "${optimized_environment[2]}" == aco-passes ]]
+[[ "${three_way_environment[1]}" == "${fixture_root}/target-root/aco-three-way-compare-"* ]]
+[[ "${three_way_environment[2]}" == aco-three-way-compare-only ]]
 [[ "${midpoint_environment[1]}" == "${fixture_root}/target-root/aco-midpoint-"* ]]
 [[ "${midpoint_environment[2]}" == aco-midpoint-only ]]
 [[ "${slice_environment[1]}" == "${fixture_root}/target-root/aco-slice-comparison-"* ]]
@@ -108,7 +118,7 @@ mv \
     "${fixture_root}/lib/libaco_optimizer.so" \
     "${fixture_root}/lib/libaco_optimizer.missing"
 read_variant_environment baseline > /dev/null
-for plugin_variant in optimized midpoint slice-comparison key-comparisons; do
+for plugin_variant in optimized three-way-compare midpoint slice-comparison key-comparisons; do
     if read_variant_environment "${plugin_variant}" \
         > "${fixture_root}/missing-plugin.log" 2>&1; then
         echo "${plugin_variant} compiler variant accepted a missing plugin" >&2

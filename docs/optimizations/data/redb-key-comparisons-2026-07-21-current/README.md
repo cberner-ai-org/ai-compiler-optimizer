@@ -1,8 +1,11 @@
-# Current-artifact aggregate benchmark
+# Pre-reach aggregate benchmark (historical)
 
 These are the retained process-only wall-time samples from a seven-pair run of
-the final hardened aggregate artifact on 2026-07-21. The runner alternated
-execution order and retained every sample.
+the exact then-current aggregate artifact on 2026-07-21. The runner alternated
+execution order and retained every sample. Artifact `bed73dd4...` and plugin
+`8e816d27...` predate the later downstream reach repair, so this directory does
+not measure the post-repair aggregate composition. Its legacy `current` path is
+retained to avoid breaking existing links.
 
 - benchmark image: `c8fd3418d7d1fa4caa4c4d928afc61569324e1334e922ce19517c2d65054958e`
 - baseline SHA-256: `40bf2eb5690962e64dc3e7b42313d69b857b6ffab154b136c81524e06c0f3756`
@@ -21,8 +24,8 @@ scripts/summarize-redb-paired-totals.sh \
 
 The aggregate ratio of means is +1.350%. The mean paired speedup is +1.362%
 with a pointwise 95% Student-t interval of [+0.024%, +2.699%]. This is direct
-evidence that the current artifact modestly improves this run, but it does not
-meet the repository's 5% sub-benchmark objective. The benchmark-emitted phase
+historical evidence that the pre-reach artifact modestly improved this run,
+but it does not meet the repository's 5% sub-benchmark objective. The benchmark-emitted phase
 means likewise did not reach 5%; the largest favorable phase point estimates
 were +3.02% for the first single-thread random-read occurrence and +2.84% for
 removals. Round 5 showed transient multithreaded contention and was retained.

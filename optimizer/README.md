@@ -14,6 +14,7 @@ marginal whole-process point estimates and a robust full-pipeline nosync-write r
 
 The same plugin exposes attribution pipelines that can be selected independently:
 
+- `aco-three-way-compare-only`: signed switch lowering only, as an explicit alias of the default;
 - `aco-midpoint-only`: ordered midpoint narrowing only;
 - `aco-slice-comparison-only`: slice ordering plus eligible general `memcmp` fast paths;
 - `aco-key-comparisons`: both keyhole modes, without signed switch lowering; and

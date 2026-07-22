@@ -49,6 +49,7 @@ gawk -F '\t' -f "${BASH_SOURCE[0]%/*}/student-t.awk" --source '
             endpoint_key = endpoint[endpoint_index]
             delete paired
             baseline_total = optimized_total = paired_total = 0
+            zero_pair_count = 0
             for (round = 1; round <= rounds; round++) {
                 baseline_key = round SUBSEP "baseline" SUBSEP endpoint_key
                 optimized_key = round SUBSEP "optimized" SUBSEP endpoint_key
@@ -61,6 +62,7 @@ gawk -F '\t' -f "${BASH_SOURCE[0]%/*}/student-t.awk" --source '
                     if (elapsed[baseline_key] != 0)
                         fail("undefined speedup for phase " phase[endpoint_key] \
                             " occurrence " occurrence[endpoint_key] " in round " round)
+                    zero_pair_count++
                     paired[round] = 0
                 } else {
                     paired[round] = \
@@ -68,6 +70,9 @@ gawk -F '\t' -f "${BASH_SOURCE[0]%/*}/student-t.awk" --source '
                 }
                 paired_total += paired[round]
             }
+            if (zero_pair_count != 0 && zero_pair_count != rounds)
+                fail("mixed zero-duration and measurable pairs for phase " \
+                    phase[endpoint_key] " occurrence " occurrence[endpoint_key])
             paired_mean = paired_total / rounds
             squared_deviation = 0
             for (round = 1; round <= rounds; round++)

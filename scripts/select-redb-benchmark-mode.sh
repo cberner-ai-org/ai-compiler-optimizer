@@ -11,6 +11,9 @@ case "${mode}" in
     optimized)
         expected_pipeline=aco-passes
         ;;
+    three-way-compare)
+        expected_pipeline=aco-three-way-compare-only
+        ;;
     midpoint)
         expected_pipeline=aco-midpoint-only
         ;;
@@ -21,7 +24,7 @@ case "${mode}" in
         expected_pipeline=aco-key-comparisons
         ;;
     *)
-        fail "ACO_BENCHMARK_MODE must be optimized, midpoint, slice-comparison, or key-comparisons"
+        fail "ACO_BENCHMARK_MODE must be optimized, three-way-compare, midpoint, slice-comparison, or key-comparisons"
         ;;
 esac
 

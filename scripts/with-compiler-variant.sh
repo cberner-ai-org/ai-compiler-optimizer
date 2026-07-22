@@ -8,11 +8,11 @@ fail() {
 
 variant="${1:-}"
 case "${variant}" in
-    baseline|optimized|midpoint|slice-comparison|key-comparisons)
+    baseline|optimized|three-way-compare|midpoint|slice-comparison|key-comparisons)
         shift
         ;;
     *)
-        fail "first argument must be baseline, optimized, midpoint, slice-comparison, or key-comparisons"
+        fail "first argument must be baseline, optimized, three-way-compare, midpoint, slice-comparison, or key-comparisons"
         ;;
 esac
 (( $# > 0 )) || fail "a command is required"
@@ -52,6 +52,9 @@ optimizer_pipeline=""
 case "${variant}" in
     optimized)
         optimizer_pipeline=aco-passes
+        ;;
+    three-way-compare)
+        optimizer_pipeline=aco-three-way-compare-only
         ;;
     midpoint)
         optimizer_pipeline=aco-midpoint-only

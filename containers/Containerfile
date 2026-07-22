@@ -302,6 +302,19 @@ RUN --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local
     set -eux; \
     test ! -e "${ACO_CARGO_TARGET_ROOT}"; \
     ACO_OPTIMIZER_TRACE=1 build-redb-benchmark \
+        three-way-compare \
+        /usr/local/bin/redb-benchmark-three-way-compare \
+        2> /tmp/aco-redb-three-way-compare-trace; \
+    grep --extended-regexp \
+        'aco-three-way-compare: transformed [1-9][0-9]* switch' \
+        /tmp/aco-redb-three-way-compare-trace; \
+    rm /tmp/aco-redb-three-way-compare-trace; \
+    rm -rf -- "${ACO_CARGO_TARGET_ROOT}"
+
+RUN --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local/cargo/registry \
+    set -eux; \
+    test ! -e "${ACO_CARGO_TARGET_ROOT}"; \
+    ACO_OPTIMIZER_TRACE=1 build-redb-benchmark \
         midpoint \
         /usr/local/bin/redb-benchmark-midpoint \
         2> /tmp/aco-redb-midpoint-trace; \
@@ -310,6 +323,8 @@ RUN --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local
         /tmp/aco-redb-midpoint-trace; \
     rm /tmp/aco-redb-midpoint-trace; \
     rm -rf -- "${ACO_CARGO_TARGET_ROOT}"
+
+COPY scripts/verify-redb-hot-slice-reach.sh /usr/local/bin/verify-redb-hot-slice-reach
 
 RUN --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local/cargo/registry \
     set -eux; \
@@ -321,6 +336,7 @@ RUN --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local
     grep --extended-regexp \
         'aco-keyhole: transformed [1-9][0-9]* slice compare\(s\), [0-9]+ generic memcmp call\(s\), and 0 ordered midpoint\(s\)' \
         /tmp/aco-redb-slice-comparison-trace; \
+    verify-redb-hot-slice-reach /tmp/aco-redb-slice-comparison-trace; \
     rm /tmp/aco-redb-slice-comparison-trace; \
     rm -rf -- "${ACO_CARGO_TARGET_ROOT}"
 
@@ -337,6 +353,7 @@ RUN --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local
     grep --extended-regexp \
         'and [1-9][0-9]* ordered midpoint\(s\)' \
         /tmp/aco-redb-key-comparisons-trace; \
+    verify-redb-hot-slice-reach /tmp/aco-redb-key-comparisons-trace; \
     rm /tmp/aco-redb-key-comparisons-trace; \
     rm -rf -- "${ACO_CARGO_TARGET_ROOT}"
 
@@ -355,8 +372,13 @@ RUN --mount=type=cache,id=ai-compiler-optimizer-cargo-registry,target=/usr/local
     rm -rf -- "${ACO_CARGO_TARGET_ROOT}"
 
 RUN set -eux; \
-    summarize-redb-build-metrics "${ACO_BUILD_METRICS_FILE}" \
+    summarize-redb-build-metrics --schema current-v2 "${ACO_BUILD_METRICS_FILE}" \
         > /usr/local/share/ai-compiler-optimizer/redb-build-metrics-summary.tsv; \
+    ACO_BENCHMARK_CANDIDATE_VARIANT=three-way-compare \
+    ACO_OPTIMIZER_PIPELINE_NAME=aco-three-way-compare-only \
+    ACO_OPTIMIZED_BENCHMARK=/usr/local/bin/redb-benchmark-three-way-compare \
+        write-benchmark-provenance \
+            /usr/local/share/ai-compiler-optimizer/benchmark-provenance-three-way-compare.tsv; \
     ACO_BENCHMARK_CANDIDATE_VARIANT=midpoint \
     ACO_OPTIMIZER_PIPELINE_NAME=aco-midpoint-only \
     ACO_OPTIMIZED_BENCHMARK=/usr/local/bin/redb-benchmark-midpoint \
@@ -402,6 +424,9 @@ COPY --from=redb-builder \
     /usr/local/bin/redb-benchmark-optimized \
     /usr/local/bin/redb-benchmark-optimized
 COPY --from=redb-builder \
+    /usr/local/bin/redb-benchmark-three-way-compare \
+    /usr/local/bin/redb-benchmark-three-way-compare
+COPY --from=redb-builder \
     /usr/local/bin/redb-benchmark-midpoint \
     /usr/local/bin/redb-benchmark-midpoint
 COPY --from=redb-builder \
@@ -428,7 +453,7 @@ RUN set -eux; \
     test -s /usr/local/share/ai-compiler-optimizer/benchmark-provenance.tsv; \
     /usr/local/bin/aco-monotonic-clock | grep --extended-regexp '^[0-9]+$'; \
     ldd /usr/local/bin/redb-benchmark-baseline; \
-    for mode in optimized midpoint slice-comparison key-comparisons; do \
+    for mode in optimized three-way-compare midpoint slice-comparison key-comparisons; do \
         ldd "/usr/local/bin/redb-benchmark-${mode}"; \
         if ACO_BENCHMARK_MODE="${mode}" ACO_BENCHMARK_RUNS=0 \
             /usr/local/bin/select-redb-benchmark-mode \

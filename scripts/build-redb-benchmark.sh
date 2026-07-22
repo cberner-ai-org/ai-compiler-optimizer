@@ -4,15 +4,15 @@ set -euo pipefail
 variant="${1:-}"
 destination="${2:-}"
 case "${variant}" in
-    baseline|optimized|midpoint|slice-comparison|key-comparisons)
+    baseline|optimized|three-way-compare|midpoint|slice-comparison|key-comparisons)
         ;;
     *)
-        echo "usage: $0 baseline|optimized|midpoint|slice-comparison|key-comparisons DESTINATION" >&2
+        echo "usage: $0 baseline|optimized|three-way-compare|midpoint|slice-comparison|key-comparisons DESTINATION" >&2
         exit 2
         ;;
 esac
 [[ -n "${destination}" ]] || {
-    echo "usage: $0 baseline|optimized|midpoint|slice-comparison|key-comparisons DESTINATION" >&2
+    echo "usage: $0 baseline|optimized|three-way-compare|midpoint|slice-comparison|key-comparisons DESTINATION" >&2
     exit 2
 }
 

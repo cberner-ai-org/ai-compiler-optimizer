@@ -14,7 +14,7 @@ pipeline="${ACO_OPTIMIZER_PIPELINE:-aco-passes}"
 [[ -x "${rustc_path}" ]] || fail "missing compiler executable: ${rustc_path}"
 [[ -s "${plugin_path}" ]] || fail "missing LLVM pass plugin: ${plugin_path}"
 case "${pipeline}" in
-    aco-passes|aco-midpoint-only|aco-slice-comparison-only|aco-key-comparisons|aco-all-passes)
+    aco-passes|aco-three-way-compare-only|aco-midpoint-only|aco-slice-comparison-only|aco-key-comparisons|aco-all-passes)
         ;;
     *)
         fail "unsupported optimizer pipeline: ${pipeline}"
